@@ -664,15 +664,15 @@ Subscription status could gate access to the premium RPC endpoint in addition to
 4. Implement relay authorization policy in backend (signer recovery, entitlement check, rate limits, idempotency)
 5. Implement EAS delegated attestation submission in backend — subscription-gated, supports any EAS schema. The existing delegated-attest flow in `rep-attestation-frontend` remains in place for currently subsidized schemas (`user-review`, `linked-identifier`) until the new backend is proven and ready to take over. Migrating the existing flow into `omatrust-backend` is a separate step, not a Phase 1 prerequisite.
 6. Implement canonical DID and `subjectDidHash` handling for subject-scoped flows
-7. Implement bootstrap voucher flow for organization onboarding
-8. Update `rep-attestation-frontend` to call `backend.omatrust.org` for delegated attestations
-9. Add tests for:
+7. Update `rep-attestation-frontend` to call `backend.omatrust.org` for delegated attestations
+8. Add tests for:
    - subscription entitlement gating
    - signer recovery and validation
    - rate limiting
    - subject canonicalization
-   - bootstrap authorization
    - key-binding authorization
+
+Note: bootstrap voucher (JWS) flow is deferred from Phase 1. The free tier includes enough sponsored write allowance to cover initial onboarding, including a first key binding. Bootstrap vouchers may be reintroduced later if onboarding needs tighter pre-binding control.
 
 ### Phase 2 (App Registry delegation — new contracts)
 
