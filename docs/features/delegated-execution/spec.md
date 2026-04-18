@@ -63,7 +63,7 @@ These are the implementation defaults for the first draft of the backend:
 - allow a signed-in account to add a non-default subject DID
 - verify delegated execution requests for sponsored Phase 1 EAS flows
 - allow initial onboarding transactions through the free tier
-- distinguish read entitlements from sponsored blockchain write entitlements
+- distinguish annual sponsored write entitlements from annual premium-read entitlements
 - return stable JSON error responses with machine-readable error codes
 
 ## Private API Endpoint Model
@@ -115,14 +115,23 @@ Important rules:
 
 ### Browser Auth Flow
 
-1. browser requests SIWE challenge
-2. wallet signs SIWE message
-3. backend verifies signature
-4. backend creates or loads account, wallet, default subject, free subscription, and associates the request to the first-party browser client
-5. backend creates session
-6. backend returns session via secure httpOnly cookie
-7. subsequent browser requests use the cookie-backed session
-8. delegated blockchain calls still require fresh EIP-712 signing by the wallet
+Base origin for first-party browser flows:
+
+- production: `https://backend.omatrust.org`
+- local development: `http://localhost:3000`
+
+Canonical V1 browser login flow:
+
+1. `POST https://backend.omatrust.org/api/private/session/wallet/challenge`
+2. wallet signs returned SIWE message
+3. `POST https://backend.omatrust.org/api/private/session/wallet/verify`
+4. backend creates or loads account, wallet, credential, default subject, and free subscription state as needed
+5. backend creates session and sets secure httpOnly cookie
+6. browser calls authenticated endpoints such as:
+   - `GET https://backend.omatrust.org/api/private/session/me`
+   - `GET https://backend.omatrust.org/api/private/accounts/me`
+   - `GET https://backend.omatrust.org/api/private/subscriptions/current`
+7. delegated blockchain calls still require fresh EIP-712 signing by the wallet
 
 ### Browser Signature Verification Rules
 
@@ -141,9 +150,101 @@ This is intentionally deferred from V1 implementation.
 
 ### Session Endpoints
 
-#### `POST /api/private/session/challenge`
+### HTTP Contract Conventions
+
+- authenticated browser endpoints use the session cookie set by `POST /api/private/session/wallet/verify`
+- all responses are JSON
+- successful `GET`/`POST` responses return body objects directly, without an outer `success` wrapper unless the endpoint itself defines one
+- API errors return:
+
+```json
+{
+  "error": "Human-readable message",
+  "code": "MACHINE_CODE"
+}
+```
+
+- where persistence effects are listed below, they describe backend state changes, not literal Supabase query syntax
+
+### Route Implementation And Test Mapping
+
+V1 route files are intentionally thin wrappers. The expected layering is:
+
+- `route.ts` parses HTTP input through `withRoute(...)`
+- a route-level handler function in `src/lib/routes/...` performs endpoint orchestration
+- deeper service functions in `src/lib/services/...` perform business logic and persistence
+
+For unit testing:
+
+- unit-test `withRoute(...)` as shared HTTP boundary infrastructure
+- unit-test the route-level handler functions listed below as the primary endpoint test targets
+- add a smaller number of integration tests against the Next route layer once dependencies are installed
+
+Recommended `withRoute(...)` unit coverage:
+
+- successful JSON request parsing with `bodySchema`
+- validation failure for malformed JSON body -> `400 INVALID_INPUT`
+- validation failure for malformed query or params -> `400 INVALID_INPUT`
+- `auth: "none"` requests that do not load a session
+- `auth: "session"` requests that require a valid session cookie
+- pass-through behavior when a route handler returns a `Response`
+- standard JSON wrapping when a route handler returns a plain object
+- thrown `ApiError` mapping to stable JSON status/code output
+- thrown unknown error mapping to `500 INTERNAL_ERROR`
+- text body mode for webhook-style routes
+- debug/error logging behavior when `OMATRUST_DEBUG` is enabled
+
+#### `GET https://backend.omatrust.org/api/health`
+
+Returns a lightweight health response for uptime checks and basic deployment verification.
+
+Auth:
+
+- no existing session required
+
+Request parameter table:
+
+- none
+
+Response:
+
+```json
+{
+  "ok": true
+}
+```
+
+Behavior:
+
+- returns a lightweight success payload
+- does not read or mutate backend state
+
+Persistence effects:
+
+- none
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/health/route.ts`
+- route handler: `getHealth` in `src/lib/routes/health.ts`
+- shared wrapper: `withRoute` in `src/lib/routes/with-route.ts`
+
+#### `POST https://backend.omatrust.org/api/private/session/wallet/challenge`
 
 Creates a SIWE login challenge for a wallet.
+
+Auth:
+
+- no existing session required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `walletDid` | body | `string` | yes | Canonical or normalizable wallet DID, expected in `did:pkh` form |
+| `chainId` | body | `number` | yes | Numeric EVM chain id used in the SIWE message |
+| `domain` | body | `string` | yes | Browser origin hostname expected to verify the SIWE message |
+| `uri` | body | `string` | yes | Full browser origin URI expected to verify the SIWE message |
 
 Request:
 
@@ -174,9 +275,34 @@ Behavior:
 - challenge binds wallet, domain, URI, issued-at, expiration, and nonce
 - message format follows SIWE semantics
 
-#### `POST /api/private/session/verify`
+Persistence effects:
+
+- inserts one `siwe_challenges` row
+- stores `wallet_did`, `nonce`, `domain`, `uri`, `chain_id`, `statement`, `expires_at`
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/session/wallet/challenge/route.ts`
+- route handler: `postSessionChallenge` in `src/lib/routes/private/session/wallet/challenge.ts`
+- core service: `createSiweChallenge` in `src/lib/services/session-service.ts`
+
+#### `POST https://backend.omatrust.org/api/private/session/wallet/verify`
 
 Verifies the signed SIWE challenge and creates a backend session.
+
+Auth:
+
+- no existing session required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `challengeId` | body | `string` | yes | Server-issued SIWE challenge id |
+| `walletDid` | body | `string` | yes | Wallet DID that signed the SIWE message |
+| `signature` | body | `string` | yes | Wallet signature over the SIWE message |
+| `siweMessage` | body | `string` | yes | Exact SIWE message presented to the wallet |
+| `walletProviderId` | body | `string` | no | Optional client-declared wallet provider identifier, for example `inApp`, `io.metamask`, or `walletConnect`; frontend clients should send it when available |
 
 Request:
 
@@ -185,7 +311,8 @@ Request:
   "challengeId": "uuid",
   "walletDid": "did:pkh:eip155:6623:0xabc...",
   "signature": "0x...",
-  "siweMessage": "example.com wants you to sign in with your Ethereum account: ..."
+  "siweMessage": "example.com wants you to sign in with your Ethereum account: ...",
+  "walletProviderId": "inApp"
 }
 ```
 
@@ -209,10 +336,31 @@ Response:
 
 Behavior:
 
-- if wallet is unknown, create account + wallet + default subject + free subscription
+- if wallet is unknown, create account + wallet + credential + default subject + free subscription state
 - if wallet already belongs to an account, return that account
+- persist client-declared wallet provider metadata on the wallet row
 - associate session to the first-party browser client
 - set session cookie in response
+
+Persistence effects:
+
+- reads and validates one existing `siwe_challenges` row
+- if wallet is new:
+  - inserts one `accounts` row
+  - inserts one `wallets` row
+  - inserts one `credentials` row for wallet-backed browser authentication
+  - inserts one default `subjects` row using the wallet DID
+  - inserts one free-tier `subscription_state` row
+- inserts one `sessions` row linked to the account, credential, and first-party browser client
+- updates `siwe_challenges.used_at`
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/session/wallet/verify/route.ts`
+- route handler: `postSessionVerify` in `src/lib/routes/private/session/wallet/verify.ts`
+- core services:
+  - `verifySiweChallengeAndCreateSession` in `src/lib/services/session-service.ts`
+  - `getOrCreateAccountForWallet` in `src/lib/services/account-service.ts`
 
 Cookie guidance:
 
@@ -221,13 +369,43 @@ Cookie guidance:
 - use `sameSite=lax` or stricter as deployment permits
 - cookie is the default browser transport in V1
 
-#### `POST /api/private/session/logout`
+#### `POST https://backend.omatrust.org/api/private/session/logout`
 
 Invalidates the current session.
 
-#### `GET /api/private/session/me`
+Auth:
+
+- current session cookie required if there is an active session to revoke
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| session cookie | cookie | `string` | yes | Backend-issued session token |
+
+Persistence effects:
+
+- updates current `sessions.revoked_at`
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/session/logout/route.ts`
+- route handler: `postSessionLogout` in `src/lib/routes/private/session/logout.ts`
+- core service: `revokeCurrentSession` in `src/lib/services/session-service.ts`
+
+#### `GET https://backend.omatrust.org/api/private/session/me`
 
 Returns the currently authenticated account context.
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| session cookie | cookie | `string` | yes | Backend-issued session token |
 
 Response:
 
@@ -238,7 +416,14 @@ Response:
     "displayName": null
   },
   "wallet": {
-    "did": "did:pkh:eip155:6623:0xabc..."
+    "did": "did:pkh:eip155:6623:0xabc...",
+    "walletProviderId": "inApp",
+    "isManagedWallet": true
+  },
+  "credential": {
+    "id": "uuid",
+    "kind": "wallet_auth",
+    "identifier": "did:pkh:eip155:6623:0xabc..."
   },
   "subscription": {
     "plan": "free",
@@ -255,11 +440,22 @@ Response:
 }
 ```
 
+Persistence effects:
+
+- no state mutation
+- loads current `accounts`, `wallets`, `subscriptions`, `subjects`, `sessions`, and `clients` context for the authenticated account
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/private/session/me/route.ts`
+- route handler: `getSessionMe` in `src/lib/routes/private/session/me.ts`
+- core service: `getAuthenticatedAccountContext` in `src/lib/services/session-service.ts`
+
 ## Account Creation Rules
 
 Account creation is implicit on first successful SIWE login verification.
 
-On first successful `POST /api/private/session/verify`:
+On first successful `POST /api/private/session/wallet/verify`:
 
 1. create `account`
 2. create `wallet`
@@ -277,13 +473,44 @@ V1 does not require the browser user to register a client. The `client` abstract
 
 ## Account and Subject Endpoints
 
-#### `GET /api/private/accounts/me`
+#### `GET https://backend.omatrust.org/api/private/accounts/me`
 
 Returns the current account record and summary data.
 
-#### `PATCH /api/private/accounts/me`
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| session cookie | cookie | `string` | yes | Backend-issued session token |
+
+Persistence effects:
+
+- no state mutation
+- loads current `accounts`, `subscriptions`, and primary `subjects` state for the authenticated account
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/private/accounts/me/route.ts`
+- route handler: `getAccountsMe` in `src/lib/routes/private/accounts/me.ts`
+- core service: `getAuthenticatedAccountContext` in `src/lib/services/session-service.ts`
+
+#### `PATCH https://backend.omatrust.org/api/private/accounts/me`
 
 Updates mutable account fields such as display name.
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `displayName` | body | `string \| null` | yes | New display name; nullable clears the value |
 
 Request:
 
@@ -293,13 +520,54 @@ Request:
 }
 ```
 
-#### `GET /api/private/subjects`
+Persistence effects:
+
+- updates `accounts.display_name`
+
+Unit test targets:
+
+- route wrapper: `PATCH src/app/api/private/accounts/me/route.ts`
+- route handler: `patchAccountsMe` in `src/lib/routes/private/accounts/me.ts`
+- core service: `updateAccountDisplayName` in `src/lib/services/account-service.ts`
+
+#### `GET https://backend.omatrust.org/api/private/subjects`
 
 Returns all subjects for the current account.
 
-#### `POST /api/private/subjects`
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| session cookie | cookie | `string` | yes | Backend-issued session token |
+
+Persistence effects:
+
+- no state mutation
+- loads `subjects` for the authenticated account ordered by default-first
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/private/subjects/route.ts`
+- route handler: `getSubjects` in `src/lib/routes/private/subjects/subjects.ts`
+- core service: `listSubjects` in `src/lib/services/subject-service.ts`
+
+#### `POST https://backend.omatrust.org/api/private/subjects`
 
 Adds a non-default subject to the current account.
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `did` | body | `string` | yes | DID to normalize and attach to the authenticated account |
 
 Request:
 
@@ -329,9 +597,40 @@ Behavior:
 - reject duplicate subject on same account
 - reject globally conflicting subject if already claimed by another account
 
-#### `GET /api/private/subjects/:subjectId`
+Persistence effects:
+
+- inserts one non-default `subjects` row on success
+- does not create key bindings or other onchain authorization records by itself
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/subjects/route.ts`
+- route handler: `postSubjects` in `src/lib/routes/private/subjects/subjects.ts`
+- core service: `addSubjectToAccount` in `src/lib/services/subject-service.ts`
+
+#### `GET https://backend.omatrust.org/api/private/subjects/:subjectId`
 
 Returns one subject owned by the current account.
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `subjectId` | path | `string` | yes | Subject id owned by the authenticated account |
+
+Persistence effects:
+
+- no state mutation
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/private/subjects/[subjectId]/route.ts`
+- route handler: `getSubjectById` in `src/lib/routes/private/subjects/subject-id.ts`
+- core service: `getSubjectForAccount` in `src/lib/services/subject-service.ts`
 
 ## Subscription and Payment Endpoints
 
@@ -341,9 +640,19 @@ Stripe is the V1 billing provider.
 
 Stripe is authoritative for payment completion and subscription billing state.
 
-#### `GET /api/private/subscriptions/current`
+#### `GET https://backend.omatrust.org/api/private/subscriptions/current`
 
 Returns the current account subscription.
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| session cookie | cookie | `string` | yes | Backend-issued session token |
 
 Response:
 
@@ -352,17 +661,40 @@ Response:
   "subscription": {
     "plan": "free",
     "status": "active",
-    "monthlySponsoredWriteLimit": 1,
-    "monthlyApiReadLimit": 100,
-    "currentPeriodStart": "2026-04-01T00:00:00.000Z",
-    "currentPeriodEnd": "2026-05-01T00:00:00.000Z"
+    "annualSponsoredWriteLimit": 10,
+    "annualPremiumReadLimit": 100,
+    "entitlementPeriodStart": "2026-01-01T00:00:00.000Z",
+    "entitlementPeriodEnd": "2027-01-01T00:00:00.000Z"
   }
 }
 ```
 
-#### `POST /api/private/subscriptions/checkout-session`
+Persistence effects:
+
+- no state mutation
+- loads current `subscriptions` state for the authenticated account
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/private/subscriptions/current/route.ts`
+- route handler: `getSubscriptionsCurrent` in `src/lib/routes/private/subscriptions/current.ts`
+- core service: `getAuthenticatedAccountContext` in `src/lib/services/session-service.ts`
+
+#### `POST https://backend.omatrust.org/api/private/subscriptions/checkout-session`
 
 Creates a Stripe Checkout Session for upgrading to `paid`.
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `plan` | body | `"paid"` | yes | V1 only supports paid upgrades |
+| `successUrl` | body | `string` | yes | Browser redirect target after successful Stripe checkout |
+| `cancelUrl` | body | `string` | yes | Browser redirect target after canceled Stripe checkout |
 
 Request:
 
@@ -388,7 +720,18 @@ Behavior:
 - account must already exist
 - create or reuse Stripe customer for the account
 
-#### `POST /api/private/subscriptions/stripe-webhook`
+Persistence effects:
+
+- may insert or update `accounts.stripe_customer_id`
+- does not update local subscription entitlements immediately; Stripe webhook remains authoritative
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/subscriptions/checkout-session/route.ts`
+- route handler: `postCheckoutSession` in `src/lib/routes/private/subscriptions/checkout-session.ts`
+- core service: `createPaidCheckoutSession` in `src/lib/services/subscription-service.ts`
+
+#### `POST https://backend.omatrust.org/api/private/subscriptions/stripe-webhook`
 
 Server-to-server Stripe webhook endpoint.
 
@@ -407,6 +750,19 @@ Behavior:
 - update local subscription state
 - do not trust browser redirects as payment proof
 
+Persistence effects:
+
+- updates `subscriptions.plan`
+- updates `subscriptions.status`
+- updates annual entitlement fields and entitlement period
+- updates `stripe_subscription_id` and `stripe_price_id`
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/subscriptions/stripe-webhook/route.ts`
+- route handler: `postStripeWebhook` in `src/lib/routes/private/subscriptions/stripe-webhook.ts`
+- core service: `handleStripeWebhook` in `src/lib/services/subscription-service.ts`
+
 ## Relay Endpoints
 
 ### Phase 1 Rule
@@ -415,9 +771,18 @@ Phase 1 relay support is for EAS delegated attestation submission.
 
 The existing frontend-hosted flow for currently subsidized schemas can remain in place during migration. This backend path is the new subscription-gated path and eventually the replacement path.
 
+V1 migration boundary:
+
+- existing subsidized schemas such as `user-review` and `linked-identifier` may continue to use the legacy frontend-hosted delegated-attest server during Phase 1
+- new subscription-gated delegated attestation flows should use `omatrust-backend`
+- V1 does not require `omatrust-backend` to proxy requests to the legacy delegated-attest server
+- frontends may temporarily route between legacy delegated-attest, new backend delegated-attest, and direct execution depending on sponsorship policy
+
+This keeps the Phase 1 backend focused on new subscription-gated flows while preserving compatibility with the already-working subsidized flow.
+
 ### Proposed Endpoint Shape
 
-#### `GET /api/private/relay/eas/nonce?attester=0x...`
+#### `GET https://backend.omatrust.org/api/private/relay/eas/nonce?attester=0x...`
 
 Returns the authoritative EAS nonce and chain metadata needed to build typed data.
 
@@ -425,6 +790,16 @@ V1 decision:
 
 - accept raw EVM address at the relay boundary
 - even though wallet identity is stored canonically as `did:pkh`, EAS nonce lookups are address-based and should remain address-based for compatibility
+
+Auth:
+
+- current session cookie required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `attester` | query | `0x...` EVM address | yes | Raw attester address used in the onchain EAS nonce lookup |
 
 Response:
 
@@ -437,9 +812,145 @@ Response:
 }
 ```
 
-#### `POST /api/private/relay/eas/delegated-attest`
+Persistence effects:
+
+- increments `subscriptions.premium_reads_used_current_year` on successful premium nonce lookup
+- performs onchain read against EAS `getNonce(address)`
+
+Unit test targets:
+
+- route wrapper: `GET src/app/api/private/relay/eas/nonce/route.ts`
+- route handler: `getRelayEasNonce` in `src/lib/routes/private/relay/eas/nonce.ts`
+- core service: `getRelayNonce` in `src/lib/services/relay-eas-service.ts`
+
+#### `POST https://backend.omatrust.org/api/private/rpc-premium`
+
+Proxies an allowlisted JSON-RPC read request to the premium RPC endpoint.
+
+Auth:
+
+- current session cookie required
+
+V1 purpose:
+
+- provide a metered premium RPC path for frontend reads that would otherwise hit the whitelisted premium RPC endpoint directly
+- keep premium RPC credentials off the client
+- allow frontend fallback to the public rate-limited RPC endpoint when premium entitlement is exhausted
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `jsonrpc` | body | `"2.0"` | yes | Standard JSON-RPC version |
+| `method` | body | `string` | yes | Allowlisted JSON-RPC read method |
+| `params` | body | `array \| object` | no | JSON-RPC params for the requested read |
+| `id` | body | `string \| number \| null` | no | JSON-RPC request id |
+
+Allowed V1 methods:
+
+- `eth_blockNumber`
+- `eth_call`
+- `eth_chainId`
+- `eth_getBlockByNumber`
+- `eth_getLogs`
+- `eth_getTransactionByHash`
+- `eth_getTransactionReceipt`
+
+V1 policy filters:
+
+- `eth_call` requires a valid `to` address
+- `eth_getLogs` requires a bounded block range
+- disallowed methods return `403 RPC_METHOD_NOT_ALLOWED`
+- overly broad log range returns `403 RPC_RANGE_TOO_LARGE`
+
+Request:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "eth_getLogs",
+  "params": [
+    {
+      "address": "0x8835AF90f1537777F52E482C8630cE4e947eCa32",
+      "fromBlock": "0x10",
+      "toBlock": "0x20",
+      "topics": []
+    }
+  ]
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": []
+}
+```
+
+Persistence effects:
+
+- increments `subscriptions.premium_reads_used_current_year` on successful forwarded premium RPC requests
+- does not mutate any other backend state
+- forwards the request to the premium RPC origin configured for `OMATRUST_PREMIUM_RPC_URL`
+
+Frontend behavior:
+
+- when this endpoint returns `403 PREMIUM_READ_LIMIT_EXCEEDED`, the frontend should fall back to the public rate-limited RPC endpoint where possible
+- when this endpoint returns `403 RPC_METHOD_NOT_ALLOWED`, the frontend should not retry the same request against the premium backend without code changes
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/rpc-premium/route.ts`
+- route handler: `postPremiumRpc` in `src/lib/routes/private/rpc-premium.ts`
+- core service: `forwardPremiumRpcRequest` in `src/lib/services/premium-rpc-service.ts`
+
+#### `POST https://backend.omatrust.org/api/private/relay/eas/delegated-attest`
 
 Accepts a signed delegated EAS attestation request and submits it if validation passes.
+
+Auth:
+
+- current session cookie required
+
+Top-level request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `attester` | body | `0x...` EVM address | yes | Address expected to own the signature and match an account wallet |
+| `prepared` | body | `object` | yes | SDK-generated delegated attestation payload |
+| `signature` | body | `0x...` hex string | yes | Wallet signature over the typed data |
+
+`prepared.delegatedRequest` fields:
+
+| Field | Type | Required | Description |
+|---|---:|---:|---|
+| `schema` | `0x...` hex | yes | EAS schema UID |
+| `attester` | `0x...` address | yes | Attester address |
+| `easContractAddress` | `0x...` address | yes | Target EAS contract |
+| `chainId` | `number` | yes | OMAChain chain id used for typed data |
+| `recipient` | `0x...` address | yes | EAS attestation recipient |
+| `expirationTime` | `string \| number` | yes | Expiration time as integer-compatible value |
+| `revocable` | `boolean` | yes | Revocability flag |
+| `refUID` | `0x...` hex | yes | EAS reference UID |
+| `data` | `0x...` hex | yes | ABI-encoded attestation payload |
+| `value` | `string \| number` | yes | Payable value field |
+| `nonce` | `string \| number` | yes | Nonce embedded by the client-side preparation step |
+| `deadline` | `string \| number` | yes | Signature deadline |
+
+`prepared.typedData` fields:
+
+| Field | Type | Required | Description |
+|---|---:|---:|---|
+| `domain.name` | `string` | yes | Typed-data domain name |
+| `domain.version` | `string` | yes | Typed-data domain version |
+| `domain.chainId` | `number` | yes | Typed-data chain id |
+| `domain.verifyingContract` | `0x...` address | yes | EAS verifying contract |
+| `types.Attest` | `array` | yes | Typed-data type definition |
+| `message` | `object` | yes | Attestation message fields used to rebuild typed data on the server |
 
 Request:
 
@@ -485,6 +996,19 @@ Session/auth rule:
 - browser caller must have an authenticated session
 - delegated blockchain submission still requires a fresh wallet EIP-712 signature for the specific action
 
+Persistence effects:
+
+- reads current `subscriptions`, `wallets`, and authenticated session context
+- performs onchain nonce lookup against EAS
+- submits one onchain `attestByDelegation(...)` transaction if validation passes
+- increments `subscriptions.sponsored_writes_used_current_year`
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/private/relay/eas/delegated-attest/route.ts`
+- route handler: `postRelayEasDelegatedAttest` in `src/lib/routes/private/relay/eas/delegated-attest.ts`
+- core service: `submitDelegatedAttestation` in `src/lib/services/relay-eas-service.ts`
+
 ### Sponsor Eligibility
 
 V1 sponsor decision checks:
@@ -493,7 +1017,7 @@ V1 sponsor decision checks:
 - authenticated browser session is valid
 - attester matches authenticated wallet or explicitly selected account wallet
 - subscription status is active
-- monthly sponsored write allowance not exhausted
+- annual sponsored write allowance not exhausted
 - if subject-scoped, key-binding authorization exists onchain
 - schema/function is eligible under current sponsor policy
 
@@ -558,7 +1082,7 @@ Suggested V1 error codes:
 - `SUBSCRIPTION_REQUIRED`
 - `SUBSCRIPTION_INACTIVE`
 - `SPONSORED_WRITE_LIMIT_EXCEEDED`
-- `API_READ_LIMIT_EXCEEDED`
+- `PREMIUM_READ_LIMIT_EXCEEDED`
 - `STRIPE_ERROR`
 - `INVALID_PLAN`
 
@@ -601,7 +1125,7 @@ Required fields:
 - `updated_at`
 - `stripe_customer_id` nullable
 
-### subscription
+### subscription_state
 
 Purpose:
 
@@ -613,12 +1137,12 @@ Required fields:
 - `account_id`
 - `plan` enum: `free | paid`
 - `status` enum: `active | canceled | past_due | incomplete | trialing`
-- `monthly_sponsored_write_limit`
-- `sponsored_writes_used_current_period`
-- `monthly_api_read_limit`
-- `api_reads_used_current_period`
-- `current_period_start`
-- `current_period_end`
+- `annual_sponsored_write_limit`
+- `sponsored_writes_used_current_year`
+- `annual_premium_read_limit`
+- `premium_reads_used_current_year`
+- `entitlement_period_start`
+- `entitlement_period_end`
 - `stripe_subscription_id` nullable
 - `stripe_price_id` nullable
 - `created_at`
@@ -632,7 +1156,7 @@ Constraints:
 
 Purpose:
 
-- wallet credentials associated with an account
+- blockchain signer identity associated with an account
 
 Required fields:
 
@@ -640,16 +1164,16 @@ Required fields:
 - `account_id`
 - `did` unique
 - `wallet_address`
-- `caip2_chain_id`
+- `wallet_provider_id` nullable
 - `is_primary`
 - `created_at`
 
 Terminology rules:
 
-- CAIP-2 refers to the chain identifier
-- CAIP-10 refers to the wallet/account identifier
 - `did:pkh` is the canonical wallet-linked identity stored in V1
-- do not refer to a wallet as “CAIP-2”
+- `wallet_provider_id` is client-declared metadata such as `inApp`, `io.metamask`, or `walletConnect`
+- `wallet_provider_id` is written when the wallet row is first created and treated as stable metadata afterward
+- do not model an EOA wallet row as chain-specific in V1 unless a later use case requires it
 
 ### subject
 
@@ -663,6 +1187,7 @@ Required fields:
 - `account_id`
 - `canonical_did`
 - `subject_did_hash`
+- `display_name` nullable
 - `is_default`
 - `created_at`
 
@@ -676,7 +1201,7 @@ Constraints:
 
 Purpose:
 
-- software/client identity associated with an account
+- software/client identity used by the backend to model which application surface created a session or request
 
 Required fields:
 
@@ -694,11 +1219,37 @@ V1 guidance:
 - browser-authenticated accounts associate to a global/static first-party browser client such as `omatrust-browser`
 - the global/static browser client may have `account_id = null`
 - browser users do not need to manage this abstraction directly
+- in V1, the browser client is not account-owned; it is a shared first-party client record
+
+### credential
+
+Purpose:
+
+- authentication credential used to establish and track how an account authenticated
+
+Required fields:
+
+- `id`
+- `account_id`
+- `client_id`
+- `wallet_id` nullable
+- `credential_kind` enum: `wallet_auth | jwt | server_wallet`
+- `credential_identifier`
+- `created_at`
+- `revoked_at` nullable
+
+V1 guidance:
+
+- wallet-based browser login creates both a `wallet` row and a `credential` row
+- authentication/session provenance is tied to the `credential`
+- delegated execution and attester checks continue to use the `wallet`
+- the session is the link between the authenticated account and the client used to create that session
 - `client_type` is deferred to V2+
 - OAuth DCR clients are deferred to V2+
 
 Future guidance:
 
+- in V2+, accounts may own or register additional clients
 - a stable `client_id` may later have multiple credentials/keys over time
 - credential rotation should not require changing `client_id`
 
@@ -713,7 +1264,7 @@ Required fields:
 - `id`
 - `account_id`
 - `client_id`
-- `wallet_id` nullable
+- `credential_id`
 - `expires_at`
 - `revoked_at` nullable
 - `created_at`
@@ -735,10 +1286,32 @@ client   1 ────  N    session
 
 - wallet signs actions on behalf of the account
 - subscription determines what the relay will sponsor
-- sponsored write limits and API read limits are tracked separately
+- annual sponsored write limits and annual premium-read limits are tracked separately
 - every account has at least one subject (default `did:pkh` from wallet); additional subjects are for subject-scoped flows
 - client identifies software/client identity and is not the same as the account or wallet; the first-party browser client may be global rather than account-owned
 - session represents temporary authenticated state and is associated with both account and client
+- in V1, there is no required `account -> client` ownership relationship for the first-party browser client; that relationship becomes relevant when account-owned OAuth/DCR clients are introduced later
+
+## Read Endpoint Tiers
+
+The system distinguishes between two RPC-backed read tiers:
+
+- public rate-limited endpoint
+  - available to all users
+  - not entitlement-limited by the OMATrust subscription system
+  - quality of service is controlled by infrastructure-level rate limiting rather than per-account quotas
+- premium endpoint
+  - higher-quality endpoint for subscribers and OMATrust-managed flows
+  - access is limited by annual premium-read entitlement
+  - proxied in V1 through `POST /api/private/rpc-premium` for browser-facing premium reads
+
+V1 guidance:
+
+- ordinary backend account/session/subject reads are not treated as premium reads
+- annual premium-read entitlement applies to premium RPC-backed reads
+- `GET /api/private/relay/eas/nonce` is treated as a premium RPC-backed read
+- `POST /api/private/rpc-premium` is the generic browser-facing premium RPC read path
+- when premium-read entitlement is exhausted, clients should fall back to the public rate-limited endpoint where appropriate rather than being blocked entirely
 
 ### Authorization Source of Truth
 
@@ -837,19 +1410,20 @@ If introduced later, bootstrap should remain:
 - `client` and `session` entities are included without overengineering OAuth into V1
 - bootstrap is deferred from V1
 - `client_type` is deferred from V1
-- read and write entitlements are distinguished
+- annual write and premium-read entitlements are distinguished
 - static browser client decision is reflected in the data model
 - raw EVM address nonce boundary is reflected in the relay contract
 - configurable schema sponsorship is reflected in sponsor policy
+- public vs premium RPC endpoint roles are documented
 - error codes are defined for expected failure modes
 - unresolved items are called out instead of hidden
 
 ## Open Questions
 
-- exact free-tier monthly sponsored write allowance
-- exact free-tier monthly API read allowance
-- exact paid-tier monthly sponsored write allowance
-- exact paid-tier monthly API read allowance
+- exact free-tier annual sponsored write allowance
+- exact free-tier annual premium-read allowance
+- exact paid-tier annual sponsored write allowance
+- exact paid-tier annual premium-read allowance
 - exact session lifetime and refresh behavior
 - exact SIWE message fields to require across all frontends
 - whether the initial V1 backend should support all EAS schemas immediately or a policy-configured subset by default configuration

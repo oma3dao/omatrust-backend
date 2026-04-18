@@ -1,15 +1,10 @@
-import { errorResponse, ok } from "@/lib/http";
-import { handleStripeWebhook } from "@/lib/services/subscription-service";
+import { withRoute } from "@/lib/routes/with-route";
+import { postStripeWebhook } from "@/lib/routes/private/subscriptions/stripe-webhook";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
-  try {
-    const signature = request.headers.get("stripe-signature");
-    const rawBody = await request.text();
-    const result = await handleStripeWebhook(rawBody, signature);
-    return ok(result);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+export const POST = withRoute({
+  debugName: "private/subscriptions/stripe-webhook",
+  bodyMode: "text",
+  handler: async ({ request, body }) => postStripeWebhook(request, body ?? "")
+});

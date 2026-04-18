@@ -1,19 +1,14 @@
-import { errorResponse, ok } from "@/lib/http";
-import { getAuthenticatedAccountContext } from "@/lib/services/session-service";
-import { getRelayNonce } from "@/lib/services/relay-eas-service";
-import { assertApiReadAllowed, incrementApiReadUsage } from "@/lib/services/subscription-service";
+import { withRoute } from "@/lib/routes/with-route";
+import {
+  getRelayEasNonce,
+  relayNonceQuerySchema
+} from "@/lib/routes/private/relay/eas/nonce";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  try {
-    const context = await getAuthenticatedAccountContext(request);
-    assertApiReadAllowed(context.subscription);
-    await incrementApiReadUsage(context.subscription);
-    const attester = new URL(request.url).searchParams.get("attester") || "";
-    const result = await getRelayNonce(attester);
-    return ok(result);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+export const GET = withRoute({
+  debugName: "private/relay/eas/nonce",
+  auth: "session",
+  querySchema: relayNonceQuerySchema,
+  handler: ({ accountContext, query }) => getRelayEasNonce(accountContext!, query!)
+});

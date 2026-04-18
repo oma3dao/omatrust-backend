@@ -1,1 +1,0 @@
-export const DEFAULT_BROWSER_CLIENT_DISPLAY_NAME = "OMATrust Browser";

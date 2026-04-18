@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -16,6 +18,10 @@ export function isApiError(error: unknown): error is ApiError {
 export function toApiError(error: unknown): ApiError {
   if (isApiError(error)) {
     return error;
+  }
+
+  if (error instanceof ZodError) {
+    return new ApiError(error.issues[0]?.message ?? "Invalid input", 400, "INVALID_INPUT");
   }
 
   if (error instanceof Error) {

@@ -1,6 +1,7 @@
 export type Plan = "free" | "paid";
 export type SubscriptionStatus = "active" | "canceled" | "past_due" | "incomplete" | "trialing";
 export type ClientAuthMode = "siwe_session" | "oauth_dcr";
+export type CredentialKind = "wallet_auth" | "jwt" | "server_wallet";
 
 export interface AccountRow {
   id: string;
@@ -10,17 +11,17 @@ export interface AccountRow {
   updated_at: string;
 }
 
-export interface SubscriptionRow {
+export interface SubscriptionStateRow {
   id: string;
   account_id: string;
   plan: Plan;
   status: SubscriptionStatus;
-  monthly_sponsored_write_limit: number;
-  sponsored_writes_used_current_period: number;
-  monthly_api_read_limit: number;
-  api_reads_used_current_period: number;
-  current_period_start: string;
-  current_period_end: string;
+  annual_sponsored_write_limit: number;
+  sponsored_writes_used_current_year: number;
+  annual_premium_read_limit: number;
+  premium_reads_used_current_year: number;
+  entitlement_period_start: string;
+  entitlement_period_end: string;
   stripe_subscription_id: string | null;
   stripe_price_id: string | null;
   created_at: string;
@@ -32,7 +33,7 @@ export interface WalletRow {
   account_id: string;
   did: string;
   wallet_address: string;
-  caip2_chain_id: string;
+  wallet_provider_id: string | null;
   is_primary: boolean;
   created_at: string;
 }
@@ -42,6 +43,7 @@ export interface SubjectRow {
   account_id: string;
   canonical_did: string;
   subject_did_hash: string;
+  display_name: string | null;
   is_default: boolean;
   created_at: string;
 }
@@ -61,10 +63,21 @@ export interface SessionRow {
   id: string;
   account_id: string;
   client_id: string;
-  wallet_id: string | null;
+  credential_id: string;
   expires_at: string;
   revoked_at: string | null;
   created_at: string;
+}
+
+export interface CredentialRow {
+  id: string;
+  account_id: string;
+  client_id: string;
+  wallet_id: string | null;
+  credential_kind: CredentialKind;
+  credential_identifier: string;
+  created_at: string;
+  revoked_at: string | null;
 }
 
 export interface SiweChallengeRow {

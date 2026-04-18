@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CHAIN_PRESET_KEYS, CHAIN_PRESETS, type ChainPreset } from "@/lib/config/chains";
 
 const envSchema = z.object({
   OMATRUST_BACKEND_URL: z.string().url(),
@@ -7,21 +8,19 @@ const envSchema = z.object({
   OMATRUST_SIWE_NONCE_TTL_MINUTES: z.coerce.number().int().positive(),
   OMATRUST_ALLOWED_SIWE_DOMAINS: z.string().default(""),
   OMATRUST_BROWSER_CLIENT_ID: z.string().min(1),
+  OMATRUST_ACTIVE_CHAIN: z.enum(CHAIN_PRESET_KEYS as [ChainPreset, ...ChainPreset[]]),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
   STRIPE_PAID_PRICE_ID: z.string().default(""),
-  OMACHAIN_CHAIN_ID: z.coerce.number().int().positive(),
-  OMACHAIN_CHAIN_NAME: z.string().min(1),
-  OMACHAIN_RPC_URL: z.string().url(),
-  OMACHAIN_EAS_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-  OMATRUST_RELAY_PRIVATE_KEY: z.string().regex(/^$|^0x[a-fA-F0-9]{64}$/),
+  OMATRUST_PREMIUM_RPC_URL: z.string().url(),
+  OMATRUST_PREMIUM_RPC_MAX_LOG_RANGE: z.coerce.number().int().positive().default(50000),
   OMATRUST_MAX_GAS_PER_TX: z.coerce.number().int().positive().default(800000),
-  OMATRUST_FREE_MONTHLY_SPONSORED_WRITES: z.coerce.number().int().nonnegative(),
-  OMATRUST_FREE_MONTHLY_API_READS: z.coerce.number().int().nonnegative(),
-  OMATRUST_PAID_MONTHLY_SPONSORED_WRITES: z.coerce.number().int().nonnegative(),
-  OMATRUST_PAID_MONTHLY_API_READS: z.coerce.number().int().nonnegative(),
+  OMATRUST_FREE_ANNUAL_SPONSORED_WRITES: z.coerce.number().int().nonnegative(),
+  OMATRUST_FREE_ANNUAL_PREMIUM_READS: z.coerce.number().int().nonnegative(),
+  OMATRUST_PAID_ANNUAL_SPONSORED_WRITES: z.coerce.number().int().nonnegative(),
+  OMATRUST_PAID_ANNUAL_PREMIUM_READS: z.coerce.number().int().nonnegative(),
   OMATRUST_FREE_ALLOWED_SCHEMA_UIDS: z.string().default(""),
   OMATRUST_PAID_ALLOWED_SCHEMA_UIDS: z.string().default("*")
 });
@@ -37,6 +36,10 @@ export function getEnv(): Env {
 
   cachedEnv = envSchema.parse(process.env);
   return cachedEnv;
+}
+
+export function getActiveChain() {
+  return CHAIN_PRESETS[getEnv().OMATRUST_ACTIVE_CHAIN];
 }
 
 export function parseCsv(value: string): string[] {

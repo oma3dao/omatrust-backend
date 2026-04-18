@@ -303,7 +303,7 @@ Delegated execution is a transport and sponsorship pattern, not the only way to 
           │ - relay authorization   │
           │ - tx submission         │
           │ - account mgmt          │
-          │ - bootstrap vouchers    │
+          │ - session + subject state│
           └───────────┬─────────────┘
                       │
           ┌───────────┴───────────┐
@@ -349,48 +349,53 @@ Protocol truth still lives in wallets, DIDs, key bindings, and onchain state. Th
 ```text
 omatrust-backend/
 ├── src/
-│   ├── api/                        # Public API routes (for external integrators, later)
-│   │   └── ...
-│   ├── api/private/                # First-party API routes (called by OMATrust frontends)
-│   │   ├── relay/
-│   │   │   ├── submit.ts           # Delegated tx submission (EAS + app registry)
-│   │   │   └── nonce.ts            # Nonce lookup
-│   │   ├── subscriptions/
-│   │   │   ├── create.ts
-│   │   │   ├── status.ts
-│   │   │   └── webhook.ts          # Payment provider webhooks
-│   │   ├── accounts/
-│   │   │   ├── create.ts
-│   │   │   ├── members.ts
-│   │   │   └── subjects.ts         # DID management for org accounts
-│   │   └── bootstrap/
-│   │       ├── verify-did.ts       # DID ownership verification
-│   │       └── voucher.ts          # Bootstrap voucher issuance
+│   ├── app/
+│   │   └── api/
+│   │       ├── health/             # Health + readiness
+│   │       └── private/            # First-party API routes (called by OMATrust frontends)
+│   │           ├── accounts/
+│   │           ├── relay/
+│   │           ├── session/
+│   │           ├── subjects/
+│   │           └── subscriptions/
 │   ├── lib/                        # Shared business logic
-│   │   ├── relay-auth.ts           # Relay authorization policy
-│   │   ├── entitlements.ts         # Subscription entitlement checks
-│   │   ├── signer.ts              # EIP-712 signature recovery + verification
-│   │   └── canonicalization.ts     # DID normalization helpers
-│   ├── db/
-│   │   ├── schema/                 # Table definitions / migrations
-│   │   ├── queries/                # Typed query helpers
-│   │   └── client.ts              # Supabase client setup
-│   ├── jobs/                       # Background jobs (later)
-│   │   └── sync-key-bindings.ts    # Onchain event listener for key-binding cache
-│   └── config/
-│       ├── chains.ts               # Chain config (RPC URLs, contract addresses)
-│       ├── env.ts                  # Environment variable validation
-│       └── sponsor-policy.ts       # Sponsor-eligible functions/schemas
-├── test/
+│   │   ├── auth/                   # SIWE, session tokens, cookies
+│   │   ├── config/                 # Environment variable validation + RPC selection
+│   │   ├── db/                     # Supabase access + row types
+│   │   ├── policy/                 # Sponsor-eligible functions/schemas
+│   │   ├── services/               # Account/session/subscription/relay services
+│   │   ├── utils/                  # Shared helpers
+│   │   └── validation/             # Request schemas
+├── supabase/
+│   └── migrations/                 # Versioned schema changes
+├── docs/
+│   └── features/
+│       └── delegated-execution/
+│           ├── plan.md
+│           └── spec.md
+├── test/                           # Optional tests / fixtures
 ├── package.json
 ├── tsconfig.json
-├── vercel.json
 └── README.md
 ```
 
 ### API migration note
 
 Some existing backend APIs currently live in the frontend repositories (e.g., `delegated-attest`, `nonce`, `controller-witness` in `rep-attestation-frontend`). These will migrate to `omatrust-backend` over time. That migration is a separate sequencing concern and is not a prerequisite for Phase 1 — Phase 1 can build new endpoints in the backend repo while existing frontend APIs continue to function.
+
+During Phase 1, the recommended coexistence strategy is frontend routing rather than backend proxying:
+
+- existing subsidized delegated-attest flows (for example `user-review` and `linked-identifier`) may continue to call the legacy frontend-hosted delegated-attest server
+- new subscription-gated delegated-attest flows should call `omatrust-backend`
+- non-sponsored actions continue to use direct execution
+
+This means frontends may temporarily maintain multiple execution paths during migration:
+
+- legacy delegated-attest server for existing subsidized schemas
+- `omatrust-backend` for new subscription-gated delegated execution
+- direct execution for crypto-native/non-sponsored flows
+
+This is preferred to adding proxy logic from `omatrust-backend` to the legacy delegated-attest server in V1. The proxy approach would add transitional complexity to the new backend for little near-term benefit. Once migration is complete, the legacy delegated-attest server functionality should be absorbed into `omatrust-backend`, and OMATrust frontends and widget clients should converge on the new backend as the shared delegated execution surface.
 
 ---
 
@@ -425,13 +430,14 @@ This is a V1 model for launch, not the final enterprise SaaS model. It is intent
 - belongs to an account (FK → account)
 - every account has exactly one subscription, including a free tier
 - represents plan / entitlement for sponsored execution
-- determines what the relay will sponsor for this account (e.g., N attestations per month on free, unlimited on paid)
-- includes plan type, status (active/expired/cancelled), billing period, payment provider reference
+- determines what the relay will sponsor for this account (e.g., N sponsored writes per year on free, a much larger annual write allotment on paid)
+- determines annual premium-read access to the premium RPC endpoint
+- includes plan type, status (active/expired/cancelled), entitlement period, payment provider reference
 - created automatically with the account (free tier by default, upgraded after payment)
 
 **wallet**
 - linked to an account (FK → account)
-- stored as a CAIP-10 identifier (e.g., `eip155:1:0x...`) to support multi-chain wallets (including Solana in the future)
+- stored canonically as `did:pkh` in V1, with chain/address metadata retained for interoperability
 - the signer used for authentication and delegated execution signatures
 - one wallet per account in V1 UI (schema supports many)
 - the wallet that created the account is the primary wallet
@@ -443,31 +449,21 @@ This is a V1 model for launch, not the final enterprise SaaS model. It is intent
 - stored as canonical DID string and `subjectDidHash` (derived via `computeDidHash(normalizeDid(did))`)
 - one subject exposed in V1 UI (schema supports many)
 
-**bootstrap_voucher**
-- a server-signed JWS (JSON Web Signature) token issued for first-bind flows
-- links the account, wallet, and subject during onboarding
-- used only until normal subject authorization exists onchain
-- JWS payload includes: canonical subject DID or `subjectDidHash`, wallet address (CAIP-10), allowed bootstrap actions, `iat` (issued-at), `exp` (expiration), unique `jti` (nonce), optional plan or tier metadata
-- the database tracks voucher `jti` values to enforce single-use
-- security-critical: must be single-use, short-lived, and scoped to specific actions
-
 ### V1 Relationships
 
 ```text
 account  1 ────  1    subscription
 account  1 ────  1*   wallet          (* many supported in schema, one exposed in V1 UI)
 account  1 ────  1..*  subject        (* at least one default did:pkh, many supported, one exposed in V1 UI)
-account  1 ────  N    bootstrap_voucher (over time, for subject-scoped onboarding)
 ```
 
 - wallet signs actions on behalf of the account
 - subscription determines what the relay will sponsor (free tier included)
 - every account has at least one subject (default `did:pkh` from wallet); additional subjects are for subject-scoped flows
-- bootstrap_voucher (JWS) is consumed during onboarding and not used after key binding is established
 
 ### Authorization Source of Truth
 
-- the database stores SaaS state: account, subscription, wallet, subject, bootstrap vouchers
+- the database stores SaaS state: account, subscription, wallet, subject
 - onchain attestations and key bindings remain the source of truth for subject authorization
 - in V1, the relay checks key-binding authorization directly onchain rather than relying on a database cache
 - caching key-binding authorization is a later optimization, not a V1 requirement
@@ -479,6 +475,7 @@ account  1 ────  N    bootstrap_voucher (over time, for subject-scoped o
 - team membership and member management
 - RBAC / roles
 - cached key-binding authorization tables
+- bootstrap voucher / bootstrap authorization flow
 - relay request logs and idempotency records (may be added during V1 if needed)
 
 ---
@@ -542,46 +539,18 @@ The relay must not trust:
 
 ---
 
-## Bootstrap Authorization
+## Deferred Bootstrap Authorization
 
-Bootstrap authorization applies when an account adds a non-default subject DID (e.g., `did:web:example.com`) that requires onchain key-binding. Accounts using only their default `did:pkh` subject do not need bootstrap — the wallet is already the identity.
+V1 does not require a separate bootstrap voucher flow.
 
-The first key binding is the main bootstrapping problem. Before a wallet is already authorized for a subject, the relay needs a narrow way to sponsor the initial setup flow which includes submitting a key binding.
+The free tier includes enough annual sponsored writes to cover initial onboarding, including a first key binding when needed. That keeps the browser flow simpler and avoids introducing another token class before it is clearly necessary.
 
-### DID Ownership Verification
+If onboarding later needs tighter pre-binding control, a future bootstrap design could add:
 
-Before issuing a bootstrap voucher, the backend must verify that the wallet controls the subject DID:
-
-- For `did:web` subjects: verify domain ownership via DNS-TXT record challenge or by placing a challenge value in the DID document at `/.well-known/did.json`.
-- For wallet-based DIDs (e.g., `did:pkh`, `did:ethr`): note that the subject address may differ from the signing wallet (e.g., the subject may be a smart contract address). Ownership verification requires a signature or transaction from an address that controls the subject — for smart contracts, this means an authorized address on the contract (owner, multisig member, etc.).
-
-The verification method used must be recorded in the key-binding proof. This may need to integrate with the controller-witness attestation flow. See [docs.omatrust.org](https://docs.omatrust.org) for key-binding proof formats and controller-witness attestation details.
-
-### Bootstrap Voucher
-
-The bootstrap voucher is a server-signed JWS (JSON Web Signature) token. JWS is used because the voucher is server-issued (not wallet-signed), and JWS is a well-understood format for server-to-server and server-to-client token exchange.
-
-The JWS payload should include:
-
-- canonical subject DID or `subjectDidHash`
-- wallet address (CAIP-10)
-- allowed bootstrap actions
-- `iat` (issued-at time)
-- `exp` (expiration time)
-- `jti` (unique nonce for single-use enforcement)
-- optional plan or tier metadata
-
-The backend tracks `jti` values in the database to enforce single-use.
-
-Bootstrap policy:
-
-- voucher must be short-lived
-- voucher must be single-use or tightly rate-limited
-- voucher must never replace the user's own action signature
-- voucher should authorize only initial setup actions such as first key binding or initial subject setup
-- once an active key binding exists, ordinary writes should require normal key-binding authorization and should no longer rely on bootstrap vouchers
-
-This keeps the user onboarding flow simple without making subscription entitlement alone sufficient to authorize any wallet.
+- DID ownership verification for non-default subjects such as `did:web`
+- a short-lived server-signed JWS for first-bind flows
+- single-use `jti` tracking in the database
+- narrow action scoping limited to initial setup writes
 
 ---
 
@@ -631,26 +600,29 @@ The onboarding flow is a single wizard with branches depending on whether the wa
 1. **Sign in** — wallet connects via Thirdweb (supports social wallets, hardware wallets, WalletConnect, and any compatible wallet provider)
 2. **Account creation** — account is created automatically with a free-tier subscription. A default `did:pkh` subject is derived from the wallet.
 3. **Optional: add a subject DID** — if the wallet holder manages an organization or domain identity, they can enter a subject DID (e.g., `did:web:example.com`). This is optional — skipping it means the account uses only the default `did:pkh` subject.
-4. **If subject DID was added:**
-   - Backend verifies DID ownership (DNS-TXT or `.well-known/did.json` challenge for `did:web`; signature challenge for wallet-based DIDs)
-   - Backend issues a bootstrap voucher (JWS) for the initial key-binding setup
-   - Wallet signs the key-binding transaction
-   - Relay submits the key-binding using the bootstrap voucher for sponsorship authorization
+4. **Initial setup writes** — the free tier includes enough annual sponsored writes to cover setup actions such as a first key binding or linked identifier when needed.
 5. **Choose execution path:**
-   - **Subscription (relay pays gas):** wallet holder upgrades from free tier or stays on free tier (with rate limits). All subsequent writes go through the relay via delegated execution.
+   - **Subscription (relay pays gas):** wallet holder stays on free tier for limited annual sponsored writes or upgrades to paid for a much larger annual sponsored-write allotment. Delegated writes go through the relay.
    - **Crypto-native (wallet pays gas):** wallet holder submits transactions directly to OMAChain RPC. No relay involvement. Authorization for subject-scoped actions is checked onchain via OMATrust attestations.
 6. **Proceed** — wallet holder creates attestations, registers apps, or performs other actions using their chosen execution path.
 
 In V2, the frontend should include a toggle allowing the wallet holder to switch between subscription and crypto-native execution paths.
 
-### RPC Endpoint Tiers (V2+)
+### RPC Endpoint Tiers
 
 OMA3 will maintain two types of RPC endpoints:
 
 - A public, rate-limited endpoint available to all users
-- A whitelisted endpoint that scales and is reserved for paying subscribers and OMA3 internal use
+- A premium endpoint that scales and is reserved for paying subscribers and OMA3 internal use
 
-Subscription status could gate access to the premium RPC endpoint in addition to relay sponsorship. This is a V2 or later implementation.
+Design guidance:
+
+- the public rate-limited endpoint does not have subscription entitlement limits
+- the premium endpoint is entitlement-limited
+- free and paid subscriptions should be modeled with annual premium-read allotments for the premium endpoint
+- when premium-read entitlement is exhausted, clients should be able to fall back to the public rate-limited endpoint rather than being fully blocked from reads
+
+This model keeps the public endpoint open while still tying premium infrastructure access to subscription value.
 
 ---
 
@@ -661,7 +633,7 @@ Subscription status could gate access to the premium RPC endpoint in addition to
 1. Create `omatrust-backend` repository, deploy to Vercel at `backend.omatrust.org`
 2. Build identity and subscription model (individual wallet-keyed, organization accounts) in Supabase
 3. Integrate payment (credit card → subscription entitlement)
-4. Implement relay authorization policy in backend (signer recovery, entitlement check, rate limits, idempotency)
+4. Implement relay authorization policy in backend (signer recovery, entitlement check, annual write limits, idempotency)
 5. Implement EAS delegated attestation submission in backend — subscription-gated, supports any EAS schema. The existing delegated-attest flow in `rep-attestation-frontend` remains in place for currently subsidized schemas (`user-review`, `linked-identifier`) until the new backend is proven and ready to take over. Migrating the existing flow into `omatrust-backend` is a separate step, not a Phase 1 prerequisite.
 6. Implement canonical DID and `subjectDidHash` handling for subject-scoped flows
 7. Update `rep-attestation-frontend` to call `backend.omatrust.org` for delegated attestations

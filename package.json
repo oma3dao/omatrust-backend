@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +20,7 @@
     "react-dom": "^19.0.0",
     "siwe": "^3.0.0",
     "stripe": "^18.5.0",
+    "thirdweb": "^5.110.4",
     "zod": "^3.25.28"
   },
   "devDependencies": {

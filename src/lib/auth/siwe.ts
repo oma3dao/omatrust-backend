@@ -1,7 +1,16 @@
-import { Contract, JsonRpcProvider, getAddress, hashMessage, verifyMessage } from "ethers";
+import {
+  Contract,
+  TypedDataEncoder,
+  getAddress,
+  hashMessage,
+  type TypedDataDomain,
+  verifyMessage,
+  verifyTypedData
+} from "ethers";
 import { SiweMessage, generateNonce } from "siwe";
-import { buildEvmDidPkh, getAddressFromDidPkh, getChainIdFromDidPkh, normalizeDid } from "@oma3/omatrust/identity";
-import { getEnv, parseCsv } from "@/lib/config/env";
+import { getAddressFromDidPkh, getChainIdFromDidPkh, normalizeDid } from "@oma3/omatrust/identity";
+import { parseCsv, getEnv } from "@/lib/config/env";
+import { getPublicRpcProvider } from "@/lib/config/rpc";
 import { ApiError } from "@/lib/errors";
 
 const ERC1271_MAGIC_VALUE = "0x1626ba7e";
@@ -22,6 +31,11 @@ export interface VerifiedSiwePayload {
   chainId: number;
   message: SiweMessage;
 }
+
+type TypedDataField = {
+  name: string;
+  type: string;
+};
 
 export function assertAllowedSiweDomain(domain: string) {
   const allowed = parseCsv(getEnv().OMATRUST_ALLOWED_SIWE_DOMAINS);
@@ -48,10 +62,6 @@ export function normalizeWalletDid(walletDid: string) {
     walletAddress: getAddress(address),
     chainId: Number(chainId)
   };
-}
-
-export function buildDefaultWalletDid(chainId: number, address: string) {
-  return buildEvmDidPkh(chainId, getAddress(address));
 }
 
 export function buildSiweChallengeMessage(input: CreateChallengeInput, nonce: string, expiresAt: Date) {
@@ -85,20 +95,59 @@ export function buildSiweChallengeMessage(input: CreateChallengeInput, nonce: st
 }
 
 async function verifyWalletMessageSignature(walletAddress: string, message: string, signature: string) {
-  const env = getEnv();
-  const provider = new JsonRpcProvider(env.OMACHAIN_RPC_URL);
-  const code = await provider.getCode(walletAddress);
+  const provider = getPublicRpcProvider();
+  const checksummedWalletAddress = getAddress(walletAddress);
+  const code = await provider.getCode(checksummedWalletAddress);
 
   if (!code || code === "0x") {
     const recovered = verifyMessage(message, signature);
-    if (getAddress(recovered) !== getAddress(walletAddress)) {
+    if (getAddress(recovered) !== checksummedWalletAddress) {
       throw new ApiError("Invalid signature", 401, "INVALID_SIGNATURE");
     }
     return;
   }
 
-  const contract = new Contract(walletAddress, ERC1271_ABI, provider);
+  const contract = new Contract(checksummedWalletAddress, ERC1271_ABI, provider);
   const result = await contract.isValidSignature(hashMessage(message), signature);
+
+  if (String(result).toLowerCase() !== ERC1271_MAGIC_VALUE) {
+    throw new ApiError("Invalid signature", 401, "INVALID_SIGNATURE");
+  }
+}
+
+export async function verifyWalletTypedDataSignature(params: {
+  walletAddress: string;
+  domain: TypedDataDomain | Record<string, unknown>;
+  types: Record<string, Array<TypedDataField>>;
+  value: Record<string, unknown>;
+  signature: string;
+}) {
+  const provider = getPublicRpcProvider();
+  const checksummedWalletAddress = getAddress(params.walletAddress);
+  const code = await provider.getCode(checksummedWalletAddress);
+
+  if (!code || code === "0x") {
+    const recovered = verifyTypedData(
+      params.domain as TypedDataDomain,
+      params.types,
+      params.value,
+      params.signature
+    );
+
+    if (getAddress(recovered) !== checksummedWalletAddress) {
+      throw new ApiError("Invalid signature", 401, "INVALID_SIGNATURE");
+    }
+
+    return;
+  }
+
+  const contract = new Contract(checksummedWalletAddress, ERC1271_ABI, provider);
+  const digest = TypedDataEncoder.hash(
+    params.domain as TypedDataDomain,
+    params.types,
+    params.value
+  );
+  const result = await contract.isValidSignature(digest, params.signature);
 
   if (String(result).toLowerCase() !== ERC1271_MAGIC_VALUE) {
     throw new ApiError("Invalid signature", 401, "INVALID_SIGNATURE");

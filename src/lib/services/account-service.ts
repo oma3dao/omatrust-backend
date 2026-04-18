@@ -1,18 +1,27 @@
-import { addMonths } from "@/lib/utils/date";
+import { addYears } from "@/lib/utils/date";
 import { getSupabaseAdmin } from "@/lib/db/admin";
-import type { AccountRow, ClientRow, SessionRow, SubjectRow, SubscriptionRow, WalletRow } from "@/lib/db/types";
+import type {
+  AccountRow,
+  ClientRow,
+  CredentialRow,
+  SessionRow,
+  SubjectRow,
+  SubscriptionStateRow,
+  WalletRow
+} from "@/lib/db/types";
 import { assertSupabase, isNoRowsError } from "@/lib/db/utils";
-import { getEnv } from "@/lib/config/env";
 import { computeDidHash } from "@oma3/omatrust/identity";
 import { ApiError } from "@/lib/errors";
+import { getPlanLimits } from "@/lib/services/subscription-service";
 
 export interface AccountContext {
   account: AccountRow;
-  subscription: SubscriptionRow;
+  subscriptionState: SubscriptionStateRow;
   wallets: WalletRow[];
   subjects: SubjectRow[];
   primarySubject: SubjectRow | null;
   client: ClientRow | null;
+  credential: CredentialRow | null;
   session: SessionRow | null;
 }
 
@@ -34,62 +43,75 @@ export async function findWalletByDid(walletDid: string) {
 export async function getAccountContextByAccountId(accountId: string, sessionId?: string): Promise<AccountContext> {
   const supabase = getSupabaseAdmin();
 
-  const [accountResult, subscriptionResult, walletsResult, subjectsResult, sessionResult, clientResult] = await Promise.all([
+  const [accountResult, subscriptionStateResult, walletsResult, subjectsResult, sessionResult] = await Promise.all([
     supabase.from("accounts").select("*").eq("id", accountId).single(),
-    supabase.from("subscriptions").select("*").eq("account_id", accountId).single(),
+    supabase.from("subscription_state").select("*").eq("account_id", accountId).single(),
     supabase.from("wallets").select("*").eq("account_id", accountId).order("is_primary", { ascending: false }),
     supabase.from("subjects").select("*").eq("account_id", accountId).order("is_default", { ascending: false }),
     sessionId
       ? supabase.from("sessions").select("*").eq("id", sessionId).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
-    sessionId
-      ? supabase
-          .from("sessions")
-          .select("client_id")
-          .eq("id", sessionId)
-          .maybeSingle()
       : Promise.resolve({ data: null, error: null })
   ]);
 
   const account = assertSupabase(accountResult.data as AccountRow | null, accountResult.error, "Account not found");
-  const subscription = assertSupabase(
-    subscriptionResult.data as SubscriptionRow | null,
-    subscriptionResult.error,
-    "Subscription not found"
+  const subscriptionState = assertSupabase(
+    subscriptionStateResult.data as SubscriptionStateRow | null,
+    subscriptionStateResult.error,
+    "Subscription state not found"
   );
   const wallets = assertSupabase(walletsResult.data as WalletRow[] | null, walletsResult.error, "Failed to load wallets") ?? [];
   const subjects =
     assertSupabase(subjectsResult.data as SubjectRow[] | null, subjectsResult.error, "Failed to load subjects") ?? [];
 
   let client: ClientRow | null = null;
-  if (clientResult.data?.client_id) {
+  let credential: CredentialRow | null = null;
+  if (sessionResult.data?.client_id) {
     const clientLookup = await supabase
       .from("clients")
       .select("*")
-      .eq("id", clientResult.data.client_id)
+      .eq("id", sessionResult.data.client_id)
       .maybeSingle();
 
-    client = assertSupabase(clientLookup.data as ClientRow | null, clientLookup.error, "Failed to load client");
+    if (clientLookup.error && !isNoRowsError(clientLookup.error)) {
+      assertSupabase(clientLookup.data, clientLookup.error, "Failed to load client");
+    }
+
+    client = (clientLookup.data as ClientRow | null) ?? null;
+  }
+
+  if (sessionResult.data?.credential_id) {
+    const credentialLookup = await supabase
+      .from("credentials")
+      .select("*")
+      .eq("id", sessionResult.data.credential_id)
+      .maybeSingle();
+
+    if (credentialLookup.error && !isNoRowsError(credentialLookup.error)) {
+      assertSupabase(credentialLookup.data, credentialLookup.error, "Failed to load credential");
+    }
+
+    credential = (credentialLookup.data as CredentialRow | null) ?? null;
   }
 
   return {
     account,
-    subscription,
+    subscriptionState,
     wallets,
     subjects,
     primarySubject: subjects.find((subject) => subject.is_default) ?? subjects[0] ?? null,
     client,
+    credential,
     session: sessionResult.data ?? null
   };
 }
 
-export async function createAccountForWallet(params: {
+export async function getOrCreateAccountForWallet(params: {
   walletDid: string;
   walletAddress: string;
-  caip2ChainId: string;
+  walletProviderId?: string | null;
 }): Promise<AccountContext> {
   const supabase = getSupabaseAdmin();
-  const env = getEnv();
+  const freeLimits = getPlanLimits("free");
 
   const existingWallet = await findWalletByDid(params.walletDid);
   if (existingWallet) {
@@ -105,7 +127,7 @@ export async function createAccountForWallet(params: {
       account_id: account.id,
       did: params.walletDid,
       wallet_address: params.walletAddress,
-      caip2_chain_id: params.caip2ChainId,
+      wallet_provider_id: params.walletProviderId ?? null,
       is_primary: true
     })
     .select("*")
@@ -126,6 +148,7 @@ export async function createAccountForWallet(params: {
       account_id: account.id,
       canonical_did: params.walletDid,
       subject_did_hash: computeDidHash(params.walletDid),
+      display_name: null,
       is_default: true
     })
     .select("*")
@@ -134,25 +157,25 @@ export async function createAccountForWallet(params: {
   assertSupabase(subjectInsert.data as SubjectRow | null, subjectInsert.error, "Failed to create default subject");
 
   const subscriptionInsert = await supabase
-    .from("subscriptions")
+    .from("subscription_state")
     .insert({
       account_id: account.id,
       plan: "free",
       status: "active",
-      monthly_sponsored_write_limit: env.OMATRUST_FREE_MONTHLY_SPONSORED_WRITES,
-      sponsored_writes_used_current_period: 0,
-      monthly_api_read_limit: env.OMATRUST_FREE_MONTHLY_API_READS,
-      api_reads_used_current_period: 0,
-      current_period_start: now.toISOString(),
-      current_period_end: addMonths(now, 1).toISOString()
+      annual_sponsored_write_limit: freeLimits.annualSponsoredWriteLimit,
+      sponsored_writes_used_current_year: 0,
+      annual_premium_read_limit: freeLimits.annualPremiumReadLimit,
+      premium_reads_used_current_year: 0,
+      entitlement_period_start: now.toISOString(),
+      entitlement_period_end: addYears(now, 1).toISOString()
     })
     .select("*")
     .single();
 
   assertSupabase(
-    subscriptionInsert.data as SubscriptionRow | null,
+    subscriptionInsert.data as SubscriptionStateRow | null,
     subscriptionInsert.error,
-    "Failed to create free subscription"
+    "Failed to create free subscription state"
   );
 
   return getAccountContextByAccountId(account.id);
@@ -170,8 +193,8 @@ export async function updateAccountDisplayName(accountId: string, displayName: s
   return assertSupabase(result.data as AccountRow | null, result.error, "Failed to update account");
 }
 
-export function assertSubscriptionActive(subscription: SubscriptionRow) {
-  if (subscription.status !== "active" && subscription.status !== "trialing") {
+export function assertSubscriptionActive(subscriptionState: SubscriptionStateRow) {
+  if (subscriptionState.status !== "active" && subscriptionState.status !== "trialing") {
     throw new ApiError("Subscription inactive", 403, "SUBSCRIPTION_INACTIVE");
   }
 }

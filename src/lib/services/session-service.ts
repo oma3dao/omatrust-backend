@@ -6,7 +6,8 @@ import { ApiError } from "@/lib/errors";
 import { createNonce, buildSiweChallengeMessage, normalizeWalletDid, verifySiweMessage } from "@/lib/auth/siwe";
 import { getEnv } from "@/lib/config/env";
 import { ensureBrowserClient } from "@/lib/services/client-service";
-import { createAccountForWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
+import { getOrCreateAccountForWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
+import { getOrCreateWalletCredential } from "@/lib/services/credential-service";
 import { signSessionToken, verifySessionToken } from "@/lib/auth/session-token";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/cookies";
 import { parseCookie } from "@/lib/utils/http";
@@ -86,6 +87,7 @@ export async function verifySiweChallengeAndCreateSession(params: {
   walletDid: string;
   signature: string;
   siweMessage: string;
+  walletProviderId?: string | null;
 }) {
   const challenge = await loadChallenge(params.challengeId);
   const normalizedWallet = normalizeWalletDid(params.walletDid);
@@ -105,16 +107,26 @@ export async function verifySiweChallengeAndCreateSession(params: {
   });
 
   const browserClient = await ensureBrowserClient();
-  const accountContext = await createAccountForWallet({
+  const accountContext = await getOrCreateAccountForWallet({
     walletDid: normalizedWallet.walletDid,
     walletAddress: normalizedWallet.walletAddress,
-    caip2ChainId: `eip155:${normalizedWallet.chainId}`
+    walletProviderId: params.walletProviderId ?? null
   });
 
-  const primaryWallet = accountContext.wallets.find((wallet) => wallet.is_primary) ?? accountContext.wallets[0];
-  if (!primaryWallet) {
+  const authenticatedWallet =
+    accountContext.wallets.find((wallet) => wallet.did === normalizedWallet.walletDid) ??
+    accountContext.wallets.find((wallet) => wallet.is_primary) ??
+    accountContext.wallets[0];
+  if (!authenticatedWallet) {
     throw new ApiError("Wallet not found", 404, "ACCOUNT_NOT_FOUND");
   }
+
+  const credential = await getOrCreateWalletCredential({
+    accountId: accountContext.account.id,
+    clientId: browserClient.id,
+    walletId: authenticatedWallet.id,
+    walletDid: normalizedWallet.walletDid
+  });
 
   const sessionExpiresAt = new Date(Date.now() + getEnv().OMATRUST_SESSION_TTL_HOURS * 60 * 60 * 1000);
   const supabase = getSupabaseAdmin();
@@ -123,7 +135,7 @@ export async function verifySiweChallengeAndCreateSession(params: {
     .insert({
       account_id: accountContext.account.id,
       client_id: browserClient.id,
-      wallet_id: primaryWallet.id,
+      credential_id: credential.id,
       expires_at: sessionExpiresAt.toISOString()
     })
     .select("*")
@@ -142,7 +154,7 @@ export async function verifySiweChallengeAndCreateSession(params: {
       sid: session.id,
       aid: session.account_id,
       cid: browserClient.id,
-      wid: primaryWallet.id
+      crid: credential.id
     },
     sessionExpiresAt
   );
@@ -167,12 +179,28 @@ export async function getAuthenticatedAccountContext(request: Request): Promise<
     throw new ApiError("Session revoked", 401, "SESSION_REVOKED");
   }
 
+  if (accountContext.session.account_id !== claims.aid || accountContext.session.client_id !== claims.cid) {
+    throw new ApiError("Session revoked", 401, "SESSION_REVOKED");
+  }
+
+  if (accountContext.session.credential_id !== claims.crid) {
+    throw new ApiError("Session revoked", 401, "SESSION_REVOKED");
+  }
+
   if (accountContext.session.revoked_at) {
     throw new ApiError("Session revoked", 401, "SESSION_REVOKED");
   }
 
   if (new Date(accountContext.session.expires_at) < new Date()) {
     throw new ApiError("Session expired", 401, "SESSION_EXPIRED");
+  }
+
+  if (!accountContext.credential || accountContext.credential.revoked_at) {
+    throw new ApiError("Session revoked", 401, "SESSION_REVOKED");
+  }
+
+  if (accountContext.credential.id !== claims.crid) {
+    throw new ApiError("Session revoked", 401, "SESSION_REVOKED");
   }
 
   return accountContext;

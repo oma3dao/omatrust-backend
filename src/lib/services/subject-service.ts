@@ -36,7 +36,7 @@ export async function getSubjectForAccount(accountId: string, subjectId: string)
   return result.data;
 }
 
-export async function addSubjectToAccount(accountId: string, did: string) {
+export async function addSubjectToAccount(accountId: string, did: string, displayName?: string | null) {
   const supabase = getSupabaseAdmin();
   const canonicalDid = normalizeDid(did);
   const subjectDidHash = computeDidHash(canonicalDid);
@@ -72,6 +72,7 @@ export async function addSubjectToAccount(accountId: string, did: string) {
       account_id: accountId,
       canonical_did: canonicalDid,
       subject_did_hash: subjectDidHash,
+      display_name: displayName ?? null,
       is_default: false
     })
     .select("*")

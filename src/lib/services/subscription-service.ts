@@ -1,10 +1,10 @@
 import Stripe from "stripe";
 import { getEnv, requireConfigured } from "@/lib/config/env";
 import { getSupabaseAdmin } from "@/lib/db/admin";
-import type { AccountRow, SubscriptionRow } from "@/lib/db/types";
+import type { AccountRow, Plan, SubscriptionStateRow } from "@/lib/db/types";
 import { assertSupabase } from "@/lib/db/utils";
 import { ApiError } from "@/lib/errors";
-import { addMonths } from "@/lib/utils/date";
+import { addYears } from "@/lib/utils/date";
 
 let stripeClient: Stripe | null = null;
 
@@ -17,33 +17,43 @@ function getStripe() {
   return stripeClient;
 }
 
-export async function getCurrentSubscription(accountId: string) {
-  const supabase = getSupabaseAdmin();
-  const result = await supabase
-    .from("subscriptions")
-    .select("*")
-    .eq("account_id", accountId)
-    .single();
+export function getPlanLimits(plan: Plan) {
+  const env = getEnv();
 
-  return assertSupabase(result.data as SubscriptionRow | null, result.error, "Subscription not found");
+  if (plan === "paid") {
+    return {
+      annualSponsoredWriteLimit: env.OMATRUST_PAID_ANNUAL_SPONSORED_WRITES,
+      annualPremiumReadLimit: env.OMATRUST_PAID_ANNUAL_PREMIUM_READS
+    };
+  }
+
+  return {
+    annualSponsoredWriteLimit: env.OMATRUST_FREE_ANNUAL_SPONSORED_WRITES,
+    annualPremiumReadLimit: env.OMATRUST_FREE_ANNUAL_PREMIUM_READS
+  };
 }
 
-export function assertApiReadAllowed(subscription: SubscriptionRow) {
-  if (subscription.api_reads_used_current_period >= subscription.monthly_api_read_limit) {
-    throw new ApiError("API read limit exceeded", 403, "API_READ_LIMIT_EXCEEDED");
+export function assertPremiumReadAllowed(subscriptionState: SubscriptionStateRow) {
+  if (subscriptionState.premium_reads_used_current_year >= subscriptionState.annual_premium_read_limit) {
+    throw new ApiError("Premium read limit exceeded", 403, "PREMIUM_READ_LIMIT_EXCEEDED");
   }
 }
 
-export async function incrementApiReadUsage(subscription: SubscriptionRow) {
+export async function incrementPremiumReadUsage(subscriptionState: SubscriptionStateRow) {
   const supabase = getSupabaseAdmin();
   const result = await supabase
-    .from("subscriptions")
+    .from("subscription_state")
     .update({
-      api_reads_used_current_period: subscription.api_reads_used_current_period + 1
+      premium_reads_used_current_year: subscriptionState.premium_reads_used_current_year + 1
     })
-    .eq("id", subscription.id);
+    .eq("id", subscriptionState.id);
 
-  assertSupabase(true, result.error, "Failed to increment API read usage");
+  assertSupabase(true, result.error, "Failed to increment premium read usage");
+}
+
+export async function consumePremiumReadEntitlement(subscriptionState: SubscriptionStateRow) {
+  assertPremiumReadAllowed(subscriptionState);
+  await incrementPremiumReadUsage(subscriptionState);
 }
 
 async function ensureStripeCustomer(account: AccountRow) {
@@ -110,7 +120,7 @@ export async function createPaidCheckoutSession(params: {
   };
 }
 
-function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionRow["status"] {
+function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStateRow["status"] {
   switch (status) {
     case "active":
       return "active";
@@ -127,6 +137,41 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionRow["s
     default:
       return "active";
   }
+}
+
+function resolvePlanFromStripeSubscription(subscription: Stripe.Subscription): Plan {
+  const env = getEnv();
+  const metadataPlan = subscription.metadata.plan;
+
+  if (metadataPlan === "free" || metadataPlan === "paid") {
+    return metadataPlan;
+  }
+
+  if (subscription.items.data.some((item) => item.price.id === env.STRIPE_PAID_PRICE_ID)) {
+    return "paid";
+  }
+
+  return "free";
+}
+
+function getSubscriptionPeriodDate(
+  subscription: Stripe.Subscription,
+  field: "current_period_start" | "current_period_end"
+) {
+  const timestamp = (subscription as Stripe.Subscription & Partial<Record<typeof field, number>>)[field];
+  return typeof timestamp === "number" ? new Date(timestamp * 1000).toISOString() : null;
+}
+
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice) {
+  const subscription = (invoice as Stripe.Invoice & {
+    subscription?: string | Stripe.Subscription | null;
+  }).subscription;
+
+  if (!subscription) {
+    return null;
+  }
+
+  return typeof subscription === "string" ? subscription : subscription.id;
 }
 
 export async function handleStripeWebhook(rawBody: string, signature: string | null) {
@@ -164,6 +209,8 @@ export async function handleStripeWebhook(rawBody: string, signature: string | n
     }
 
     if (stripeSubscription) {
+      const plan = resolvePlanFromStripeSubscription(stripeSubscription);
+      const limits = getPlanLimits(plan);
       const accountId = String(
         stripeSubscription.metadata.accountId ||
           stripeSubscription.items.data[0]?.price?.metadata?.accountId ||
@@ -174,42 +221,43 @@ export async function handleStripeWebhook(rawBody: string, signature: string | n
         throw new ApiError("Stripe error", 400, "STRIPE_ERROR");
       }
 
-      const currentPeriodEnd = "current_period_end" in stripeSubscription && stripeSubscription.current_period_end
-        ? new Date(stripeSubscription.current_period_end * 1000).toISOString()
-        : addMonths(new Date(), 1).toISOString();
+      const currentPeriodEnd =
+        getSubscriptionPeriodDate(stripeSubscription, "current_period_end") ??
+        addYears(new Date(), 1).toISOString();
 
-      const currentPeriodStart = "current_period_start" in stripeSubscription && stripeSubscription.current_period_start
-        ? new Date(stripeSubscription.current_period_start * 1000).toISOString()
-        : new Date().toISOString();
+      const currentPeriodStart =
+        getSubscriptionPeriodDate(stripeSubscription, "current_period_start") ??
+        new Date().toISOString();
 
       const update = await supabase
-        .from("subscriptions")
+        .from("subscription_state")
         .update({
-          plan: stripeSubscription.status === "active" || stripeSubscription.status === "trialing" ? "paid" : "free",
+          plan,
           status: mapStripeStatus(stripeSubscription.status),
+          annual_sponsored_write_limit: limits.annualSponsoredWriteLimit,
+          annual_premium_read_limit: limits.annualPremiumReadLimit,
           stripe_subscription_id: stripeSubscription.id,
           stripe_price_id: stripeSubscription.items.data[0]?.price?.id ?? null,
-          current_period_start: currentPeriodStart,
-          current_period_end: currentPeriodEnd
+          entitlement_period_start: currentPeriodStart,
+          entitlement_period_end: currentPeriodEnd
         })
         .eq("account_id", accountId);
 
-      assertSupabase(true, update.error, "Failed to update subscription");
+      assertSupabase(true, update.error, "Failed to update subscription state");
     }
   }
 
   if (event.type === "invoice.payment_failed") {
     const invoice = event.data.object as Stripe.Invoice;
-    const subscriptionId =
-      typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id ?? null;
+    const subscriptionId = getInvoiceSubscriptionId(invoice);
 
     if (subscriptionId) {
       const update = await supabase
-        .from("subscriptions")
+        .from("subscription_state")
         .update({ status: "past_due" })
         .eq("stripe_subscription_id", subscriptionId);
 
-      assertSupabase(true, update.error, "Failed to update past due subscription");
+      assertSupabase(true, update.error, "Failed to update past due subscription state");
     }
   }
 
