@@ -10,7 +10,7 @@ const envSchema = z.object({
   OMATRUST_BROWSER_CLIENT_ID: z.string().min(1),
   OMATRUST_ACTIVE_CHAIN: z.enum(CHAIN_PRESET_KEYS as [ChainPreset, ...ChainPreset[]]),
   SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  SUPABASE_SECRET_KEY: z.string().min(1),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
   STRIPE_PAID_PRICE_ID: z.string().default(""),

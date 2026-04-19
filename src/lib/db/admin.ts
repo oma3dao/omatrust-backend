@@ -11,7 +11,7 @@ export function getSupabaseAdmin() {
 
   const env = getEnv();
 
-  client = createClient<Database>(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  client = createClient<Database>(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
     auth: {
       persistSession: false,
       autoRefreshToken: false
