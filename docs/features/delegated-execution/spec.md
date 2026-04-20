@@ -303,6 +303,7 @@ Request parameter table:
 | `signature` | body | `string` | yes | Wallet signature over the SIWE message |
 | `siweMessage` | body | `string` | yes | Exact SIWE message presented to the wallet |
 | `walletProviderId` | body | `string` | no | Optional client-declared wallet provider identifier, for example `inApp`, `io.metamask`, or `walletConnect`; frontend clients should send it when available |
+| `executionMode` | body | `"subscription" \| "native"` | no | Wallet-scoped execution mode. Required on first sign-in for non-`inApp` wallets. Ignored after wallet creation unless it conflicts with the persisted wallet mode |
 
 Request:
 
@@ -312,7 +313,8 @@ Request:
   "walletDid": "did:pkh:eip155:6623:0xabc...",
   "signature": "0x...",
   "siweMessage": "example.com wants you to sign in with your Ethereum account: ...",
-  "walletProviderId": "inApp"
+  "walletProviderId": "inApp",
+  "executionMode": "subscription"
 }
 ```
 
@@ -337,6 +339,10 @@ Response:
 Behavior:
 
 - if wallet is unknown, create account + wallet + credential + default subject + free subscription state
+- if wallet is unknown and `walletProviderId === "inApp"`, force `executionMode = "subscription"`
+- if wallet is unknown and `walletProviderId !== "inApp"`, require the frontend to provide either `subscription` or `native`
+- if wallet already exists, treat `execution_mode` as persistent wallet metadata rather than a per-session override
+- reject any attempt to assign `native` execution to an `inApp` wallet
 - if wallet already belongs to an account, return that account
 - persist client-declared wallet provider metadata on the wallet row
 - associate session to the first-party browser client
@@ -418,6 +424,7 @@ Response:
   "wallet": {
     "did": "did:pkh:eip155:6623:0xabc...",
     "walletProviderId": "inApp",
+    "executionMode": "subscription",
     "isManagedWallet": true
   },
   "credential": {
@@ -459,6 +466,9 @@ On first successful `POST /api/private/session/wallet/verify`:
 
 1. create `account`
 2. create `wallet`
+   - assign wallet `execution_mode`
+   - `inApp` wallets are always `subscription`
+   - non-`inApp` wallets must choose `subscription` or `native` at first sign-in
 3. derive default `did:pkh` subject from the wallet and create `subject`
 4. create free-tier `subscription`
 5. associate to the global/static first-party browser `client`
@@ -816,6 +826,7 @@ Persistence effects:
 
 - increments `subscriptions.premium_reads_used_current_year` on successful premium nonce lookup
 - performs onchain read against EAS `getNonce(address)`
+- rejects wallets whose persisted `execution_mode` is `native`
 
 Unit test targets:
 
@@ -987,7 +998,7 @@ Behavior:
 - use OMATrust SDK EAS delegated helpers where appropriate
 - server fetches authoritative nonce from chain
 - server rebuilds typed data and verifies signature
-- server checks entitlement and sponsor eligibility
+- server checks wallet `execution_mode`, entitlement, and sponsor eligibility
 - if validation passes, server submits tx
 - if validation fails, server returns stable error code
 
@@ -995,6 +1006,8 @@ Session/auth rule:
 
 - browser caller must have an authenticated session
 - delegated blockchain submission still requires a fresh wallet EIP-712 signature for the specific action
+- wallets in `native` execution mode do not use this relay path for normal submission routing
+- a `subscription` wallet with exhausted entitlement should be prompted to upgrade or buy more entitlement, not switched to `native` automatically
 
 Persistence effects:
 
@@ -1165,6 +1178,7 @@ Required fields:
 - `did` unique
 - `wallet_address`
 - `wallet_provider_id` nullable
+- `execution_mode` enum: `subscription | native`
 - `is_primary`
 - `created_at`
 
@@ -1173,6 +1187,8 @@ Terminology rules:
 - `did:pkh` is the canonical wallet-linked identity stored in V1
 - `wallet_provider_id` is client-declared metadata such as `inApp`, `io.metamask`, or `walletConnect`
 - `wallet_provider_id` is written when the wallet row is first created and treated as stable metadata afterward
+- `execution_mode` is wallet-scoped and persistent once the wallet row is created
+- `inApp` wallets must use `execution_mode = subscription`
 - do not model an EOA wallet row as chain-specific in V1 unless a later use case requires it
 
 ### subject

@@ -12,6 +12,7 @@ import { signSessionToken, verifySessionToken } from "@/lib/auth/session-token";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/cookies";
 import { parseCookie } from "@/lib/utils/http";
 import { NextResponse } from "next/server";
+import type { WalletExecutionMode } from "@/lib/db/types";
 
 function shouldUseSecureCookies() {
   const origin = getEnv().OMATRUST_BACKEND_URL;
@@ -88,6 +89,7 @@ export async function verifySiweChallengeAndCreateSession(params: {
   signature: string;
   siweMessage: string;
   walletProviderId?: string | null;
+  executionMode?: WalletExecutionMode | null;
 }) {
   const challenge = await loadChallenge(params.challengeId);
   const normalizedWallet = normalizeWalletDid(params.walletDid);
@@ -110,7 +112,8 @@ export async function verifySiweChallengeAndCreateSession(params: {
   const accountContext = await getOrCreateAccountForWallet({
     walletDid: normalizedWallet.walletDid,
     walletAddress: normalizedWallet.walletAddress,
-    walletProviderId: params.walletProviderId ?? null
+    walletProviderId: params.walletProviderId ?? null,
+    executionMode: params.executionMode ?? null
   });
 
   const authenticatedWallet =

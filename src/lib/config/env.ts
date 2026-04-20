@@ -7,6 +7,7 @@ const envSchema = z.object({
   OMATRUST_SESSION_TTL_HOURS: z.coerce.number().int().positive(),
   OMATRUST_SIWE_NONCE_TTL_MINUTES: z.coerce.number().int().positive(),
   OMATRUST_ALLOWED_SIWE_DOMAINS: z.string().default(""),
+  OMATRUST_ALLOWED_CORS_ORIGINS: z.string().default(""),
   OMATRUST_BROWSER_CLIENT_ID: z.string().min(1),
   OMATRUST_ACTIVE_CHAIN: z.enum(CHAIN_PRESET_KEYS as [ChainPreset, ...ChainPreset[]]),
   SUPABASE_URL: z.string().url(),

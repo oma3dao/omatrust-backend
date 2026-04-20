@@ -7,12 +7,17 @@ import type {
   SessionRow,
   SubjectRow,
   SubscriptionStateRow,
+  WalletExecutionMode,
   WalletRow
 } from "@/lib/db/types";
 import { assertSupabase, isNoRowsError } from "@/lib/db/utils";
 import { computeDidHash } from "@oma3/omatrust/identity";
 import { ApiError } from "@/lib/errors";
 import { getPlanLimits } from "@/lib/services/subscription-service";
+import {
+  assertRequestedExecutionModeMatchesWallet,
+  resolveInitialWalletExecutionMode
+} from "@/lib/services/wallet-execution-mode";
 
 export interface AccountContext {
   account: AccountRow;
@@ -109,14 +114,21 @@ export async function getOrCreateAccountForWallet(params: {
   walletDid: string;
   walletAddress: string;
   walletProviderId?: string | null;
+  executionMode?: WalletExecutionMode | null;
 }): Promise<AccountContext> {
   const supabase = getSupabaseAdmin();
   const freeLimits = getPlanLimits("free");
 
   const existingWallet = await findWalletByDid(params.walletDid);
   if (existingWallet) {
+    assertRequestedExecutionModeMatchesWallet(existingWallet, params.executionMode);
     return getAccountContextByAccountId(existingWallet.account_id);
   }
+
+  const executionMode = resolveInitialWalletExecutionMode({
+    walletProviderId: params.walletProviderId ?? null,
+    requestedExecutionMode: params.executionMode ?? null
+  });
 
   const accountInsert = await supabase.from("accounts").insert({}).select("*").single();
   const account = assertSupabase(accountInsert.data as AccountRow | null, accountInsert.error, "Failed to create account");
@@ -128,6 +140,7 @@ export async function getOrCreateAccountForWallet(params: {
       did: params.walletDid,
       wallet_address: params.walletAddress,
       wallet_provider_id: params.walletProviderId ?? null,
+      execution_mode: executionMode,
       is_primary: true
     })
     .select("*")

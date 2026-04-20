@@ -439,6 +439,8 @@ This is a V1 model for launch, not the final enterprise SaaS model. It is intent
 - linked to an account (FK → account)
 - stored canonically as `did:pkh` in V1, with chain/address metadata retained for interoperability
 - the signer used for authentication and delegated execution signatures
+- persists a wallet-scoped `execution_mode` of `subscription` or `native`
+- `inApp` wallets are always assigned `subscription`
 - one wallet per account in V1 UI (schema supports many)
 - the wallet that created the account is the primary wallet
 
@@ -593,7 +595,7 @@ Delegated execution preserves:
 
 ## Wizard UX
 
-The onboarding flow is a single wizard with branches depending on whether the wallet holder has a subject DID and whether they choose subscription or crypto-native execution.
+The onboarding flow is a single wizard with branches depending on whether the wallet holder has a subject DID and how the wallet's persistent execution mode is established at first sign-in.
 
 ### Unified Flow
 
@@ -601,12 +603,14 @@ The onboarding flow is a single wizard with branches depending on whether the wa
 2. **Account creation** — account is created automatically with a free-tier subscription. A default `did:pkh` subject is derived from the wallet.
 3. **Optional: add a subject DID** — if the wallet holder manages an organization or domain identity, they can enter a subject DID (e.g., `did:web:example.com`). This is optional — skipping it means the account uses only the default `did:pkh` subject.
 4. **Initial setup writes** — the free tier includes enough annual sponsored writes to cover setup actions such as a first key binding or linked identifier when needed.
-5. **Choose execution path:**
-   - **Subscription (relay pays gas):** wallet holder stays on free tier for limited annual sponsored writes or upgrades to paid for a much larger annual sponsored-write allotment. Delegated writes go through the relay.
-   - **Crypto-native (wallet pays gas):** wallet holder submits transactions directly to OMAChain RPC. No relay involvement. Authorization for subject-scoped actions is checked onchain via OMATrust attestations.
-6. **Proceed** — wallet holder creates attestations, registers apps, or performs other actions using their chosen execution path.
+5. **Establish wallet execution mode:**
+   - **Managed `inApp` wallet:** backend automatically persists `execution_mode = subscription`
+   - **Non-`inApp` wallet:** frontend asks the user to choose one persistent mode on first sign-in
+     - **Subscription (relay pays gas):** wallet holder stays on free tier for limited annual sponsored writes or upgrades to paid for a much larger annual sponsored-write allotment. Delegated writes go through the relay.
+     - **Crypto-native (wallet pays gas):** wallet holder submits transactions directly to OMAChain RPC. No relay involvement for normal submission routing. Authorization for subject-scoped actions is checked onchain via OMATrust attestations.
+6. **Proceed** — wallet holder creates attestations, registers apps, or performs other actions using the wallet's persisted execution mode.
 
-In V2, the frontend should include a toggle allowing the wallet holder to switch between subscription and crypto-native execution paths.
+In V2, the frontend may add an explicit execution-mode management UI if OMATrust decides to support changing a wallet's persisted mode after onboarding.
 
 ### RPC Endpoint Tiers
 

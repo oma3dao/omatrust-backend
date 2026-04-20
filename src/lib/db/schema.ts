@@ -85,6 +85,7 @@ export interface Database {
           did: string;
           wallet_address: string;
           wallet_provider_id: string | null;
+          execution_mode: "subscription" | "native";
           is_primary: boolean;
           created_at: string;
         };
@@ -94,6 +95,7 @@ export interface Database {
           did: string;
           wallet_address: string;
           wallet_provider_id?: string | null;
+          execution_mode?: "subscription" | "native";
           is_primary?: boolean;
           created_at?: string;
         };
@@ -103,6 +105,7 @@ export interface Database {
           did?: string;
           wallet_address?: string;
           wallet_provider_id?: string | null;
+          execution_mode?: "subscription" | "native";
           is_primary?: boolean;
           created_at?: string;
         };

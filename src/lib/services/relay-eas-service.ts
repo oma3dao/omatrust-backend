@@ -12,6 +12,7 @@ import { assertSupabase } from "@/lib/db/utils";
 import type { DelegatedTypedDataMessage } from "@/lib/routes/private/relay/eas/delegated-attest-schema";
 import { loadEasDelegatePrivateKey, getThirdwebManagedWallet } from "@/lib/services/eas-delegate-key";
 import { verifyWalletTypedDataSignature } from "@/lib/auth/siwe";
+import { assertWalletUsesSubscriptionExecution } from "@/lib/services/wallet-execution-mode";
 import { createThirdwebClient, getContract, prepareContractCall, defineChain, waitForReceipt, Engine } from "thirdweb";
 
 const EAS_READ_ABI = [
@@ -85,6 +86,16 @@ export async function getRelayNonce(accountContext: AccountContext, attester: st
     throw new ApiError("Invalid attester address format", 400, "INVALID_INPUT");
   }
 
+  const attesterWallet = accountContext.wallets.find(
+    (wallet) => wallet.wallet_address.toLowerCase() === attester.toLowerCase()
+  );
+
+  if (!attesterWallet) {
+    throw new ApiError("Attester mismatch", 403, "ATTESTER_MISMATCH");
+  }
+
+  assertWalletUsesSubscriptionExecution(attesterWallet);
+
   assertSubscriptionActive(accountContext.subscriptionState);
 
   const contract = new Contract(chain.contracts.easContract, EAS_READ_ABI, getProvider());
@@ -120,10 +131,14 @@ export async function submitDelegatedAttestation(params: {
     throw new ApiError("Invalid attester address format", 400, "INVALID_INPUT");
   }
 
-  const accountWallets = params.accountContext.wallets.map((wallet) => wallet.wallet_address.toLowerCase());
-  if (!accountWallets.includes(attester.toLowerCase())) {
+  const attesterWallet = params.accountContext.wallets.find(
+    (wallet) => wallet.wallet_address.toLowerCase() === attester.toLowerCase()
+  );
+  if (!attesterWallet) {
     throw new ApiError("Attester mismatch", 403, "ATTESTER_MISMATCH");
   }
+
+  assertWalletUsesSubscriptionExecution(attesterWallet);
 
   assertSubscriptionActive(params.accountContext.subscriptionState);
 

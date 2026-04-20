@@ -42,6 +42,7 @@ create table if not exists public.wallets (
   did text not null unique,
   wallet_address text not null,
   wallet_provider_id text,
+  execution_mode text not null default 'subscription' check (execution_mode in ('subscription', 'native')),
   is_primary boolean not null default false,
   created_at timestamptz not null default now(),
   constraint wallets_account_address_unique unique (account_id, wallet_address)

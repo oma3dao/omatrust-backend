@@ -101,6 +101,7 @@ OMATRUST_SESSION_SECRET=
 OMATRUST_SESSION_TTL_HOURS=24
 OMATRUST_SIWE_NONCE_TTL_MINUTES=10
 OMATRUST_ALLOWED_SIWE_DOMAINS=
+OMATRUST_ALLOWED_CORS_ORIGINS=
 OMATRUST_BROWSER_CLIENT_ID=omatrust-browser
 
 # Supabase
@@ -135,6 +136,7 @@ OMATRUST_PAID_ALLOWED_SCHEMA_UIDS=*
 Notes:
 
 - `OMATRUST_ACTIVE_CHAIN` selects a preset from `src/lib/config/chains.ts`.
+- `OMATRUST_ALLOWED_CORS_ORIGINS` should list the exact browser origins allowed to call the backend with `credentials: "include"`, for example preview frontend origins and `http://localhost:3000`.
 - `OMATRUST_PREMIUM_RPC_URL` is separate from chain presets because it is infrastructure-specific.
 - Mainnet and testnet are intended to use the Thirdweb server wallet path.
 - Devnet can use `EAS_DELEGATE_PRIVATE_KEY` as the delegated-signing fallback.

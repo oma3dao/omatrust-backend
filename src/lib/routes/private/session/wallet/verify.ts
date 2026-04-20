@@ -7,7 +7,8 @@ export const sessionVerifyBodySchema = z.object({
   walletDid: z.string().min(1),
   signature: z.string().min(1),
   siweMessage: z.string().min(1),
-  walletProviderId: z.string().min(1).max(100).optional().nullable()
+  walletProviderId: z.string().min(1).max(100).optional().nullable(),
+  executionMode: z.enum(["subscription", "native"]).optional().nullable()
 });
 
 export async function postSessionVerify(body: z.infer<typeof sessionVerifyBodySchema>) {

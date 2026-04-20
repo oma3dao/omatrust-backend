@@ -2,6 +2,7 @@ export type Plan = "free" | "paid";
 export type SubscriptionStatus = "active" | "canceled" | "past_due" | "incomplete" | "trialing";
 export type ClientAuthMode = "siwe_session" | "oauth_dcr";
 export type CredentialKind = "wallet_auth" | "jwt" | "server_wallet";
+export type WalletExecutionMode = "subscription" | "native";
 
 export interface AccountRow {
   id: string;
@@ -34,6 +35,7 @@ export interface WalletRow {
   did: string;
   wallet_address: string;
   wallet_provider_id: string | null;
+  execution_mode: WalletExecutionMode;
   is_primary: boolean;
   created_at: string;
 }
