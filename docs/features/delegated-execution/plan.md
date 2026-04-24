@@ -547,9 +547,10 @@ V1 does not require a separate bootstrap voucher flow.
 
 The free tier includes enough annual sponsored writes to cover initial onboarding, including a first key binding when needed. That keeps the browser flow simpler and avoids introducing another token class before it is clearly necessary.
 
+V1 can still expose a public subject-ownership verification endpoint for flows that need to check control of a non-default subject such as `did:web` before any later binding or attestation step. That endpoint is verification-only and does not replace the deferred bootstrap voucher concept.
+
 If onboarding later needs tighter pre-binding control, a future bootstrap design could add:
 
-- DID ownership verification for non-default subjects such as `did:web`
 - a short-lived server-signed JWS for first-bind flows
 - single-use `jti` tracking in the database
 - narrow action scoping limited to initial setup writes

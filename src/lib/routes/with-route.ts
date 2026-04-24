@@ -113,7 +113,8 @@ export function withRoute<
         status: apiError.statusCode,
         code: apiError.code,
         durationMs: Date.now() - startedAt,
-        error: apiError.message
+        error: apiError.message,
+        details: apiError.details
       });
 
       return errorResponse(apiError);

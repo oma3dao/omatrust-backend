@@ -19,7 +19,8 @@ export function errorResponse(error: unknown) {
   return json(
     {
       error: apiError.message,
-      code: apiError.code
+      code: apiError.code,
+      details: apiError.details
     },
     {
       status: apiError.statusCode

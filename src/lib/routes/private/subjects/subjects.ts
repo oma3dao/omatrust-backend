@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { created } from "@/lib/http";
+import type { AccountContext } from "@/lib/services/account-service";
 import { addSubjectToAccount, listSubjects } from "@/lib/services/subject-service";
 
 export const createSubjectBodySchema = z.object({
@@ -21,8 +22,8 @@ export async function getSubjects(accountId: string) {
   };
 }
 
-export async function postSubjects(accountId: string, body: z.infer<typeof createSubjectBodySchema>) {
-  const subject = await addSubjectToAccount(accountId, body.did, body.displayName ?? null);
+export async function postSubjects(accountContext: AccountContext, body: z.infer<typeof createSubjectBodySchema>) {
+  const subject = await addSubjectToAccount(accountContext, body.did, body.displayName ?? null);
 
   return created({
     subject: {

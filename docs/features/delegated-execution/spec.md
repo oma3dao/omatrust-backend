@@ -70,12 +70,13 @@ These are the implementation defaults for the first draft of the backend:
 
 ### Path Rules
 
-- public endpoints, when they exist later, will live under `/api/...`
+- public endpoints live under `/api/...`
 - first-party endpoints live under `/api/private/...`
 - webhook endpoints that are server-to-server only also live under `/api/private/...`
 
 ### V1 Endpoint Groups
 
+- `/api/verify/...`
 - `/api/private/session/...`
 - `/api/private/accounts/...`
 - `/api/private/subjects/...`
@@ -481,6 +482,89 @@ If the wallet already exists:
 
 V1 does not require the browser user to register a client. The `client` abstraction exists internally for model consistency only.
 
+## Public Verification Endpoints
+
+#### `POST https://backend.omatrust.org/api/verify/subject-ownership`
+
+Verifies whether a wallet DID can currently be treated as the owner/controller of a subject DID.
+
+Auth:
+
+- no session required
+
+Request parameter table:
+
+| Field | Location | Type | Required | Description |
+|---|---|---:|---:|---|
+| `subjectDid` | body | `string` | yes | Subject DID to verify, currently `did:web` or EVM `did:pkh` |
+| `connectedWalletDid` | body | `string` | yes | Wallet DID the caller is attempting to use as the controller |
+| `txHash` | body | `string \| null` | no | Optional transfer-proof transaction hash for `did:pkh` ownership verification |
+
+Request:
+
+```json
+{
+  "subjectDid": "did:web:example.com",
+  "connectedWalletDid": "did:pkh:eip155:66238:0xabc..."
+}
+```
+
+Success response:
+
+```json
+{
+  "ok": true,
+  "status": "verified",
+  "subjectDid": "did:web:example.com",
+  "connectedWalletDid": "did:pkh:eip155:66238:0xabc...",
+  "method": "dns",
+  "details": "Verified via DNS TXT record at _controllers.example.com"
+}
+```
+
+Failure response:
+
+```json
+{
+  "ok": false,
+  "status": "failed",
+  "subjectDid": "did:web:example.com",
+  "connectedWalletDid": "did:pkh:eip155:66238:0xdef...",
+  "error": "DID ownership verification failed",
+  "details": "DNS check: failed. DID document check: failed."
+}
+```
+
+Behavior:
+
+- for `did:web`, accept either proof path:
+  - `_controllers.{domain}` DNS TXT record
+  - `https://{domain}/.well-known/did.json`
+- for `did:pkh`, support EVM `did:pkh` verification only in V1
+- for contract-backed `did:pkh`, check:
+  - `owner()`
+  - `admin()`
+  - `getOwner()`
+  - EIP-1967 admin slot
+- if `txHash` is supplied for `did:pkh`, verify the transfer-proof path instead of only direct ownership
+- no attestation is written
+- no backend database rows are created or mutated
+
+V1 backend scope note:
+
+- the backend copy currently resolves `did:pkh` verification against the configured active OMAChain RPC only
+- the SDK helper is more general because it accepts an injected provider; the backend can be widened later after the shared SDK update is published and adopted
+
+Persistence effects:
+
+- none
+
+Unit test targets:
+
+- route wrapper: `POST src/app/api/verify/subject-ownership/route.ts`
+- route handler: `postVerifySubjectOwnership` in `src/lib/routes/verify/subject-ownership.ts`
+- core service: `verifySubjectOwnership` in `src/lib/services/subject-ownership-service.ts`
+
 ## Account and Subject Endpoints
 
 #### `GET https://backend.omatrust.org/api/private/accounts/me`
@@ -567,7 +651,7 @@ Unit test targets:
 
 #### `POST https://backend.omatrust.org/api/private/subjects`
 
-Adds a non-default subject to the current account.
+Adds a subject to the current account.
 
 Auth:
 
@@ -595,7 +679,7 @@ Response:
     "id": "uuid",
     "canonicalDid": "did:web:example.com",
     "subjectDidHash": "0x...",
-    "isDefault": false
+    "isDefault": true
   }
 }
 ```
@@ -604,12 +688,15 @@ Behavior:
 
 - normalize DID using OMATrust SDK helpers
 - compute and persist `subjectDidHash`
+- verify ownership server-side using the authenticated session wallet before insertion
 - reject duplicate subject on same account
 - reject globally conflicting subject if already claimed by another account
+- if the account only has the bootstrap wallet `did:pkh` subject and the new subject is the first meaningful subject, replace the bootstrap subject and make the new subject default
 
 Persistence effects:
 
-- inserts one non-default `subjects` row on success
+- inserts one `subjects` row on success
+- may delete the bootstrap wallet subject when replacing the initial default subject
 - does not create key bindings or other onchain authorization records by itself
 
 Unit test targets:

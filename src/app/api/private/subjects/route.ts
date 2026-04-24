@@ -17,5 +17,5 @@ export const POST = withRoute({
   debugName: "private/subjects:post",
   auth: "session",
   bodySchema: createSubjectBodySchema,
-  handler: ({ accountContext, body }) => postSubjects(accountContext!.account.id, body!)
+  handler: ({ accountContext, body }) => postSubjects(accountContext!, body!)
 });

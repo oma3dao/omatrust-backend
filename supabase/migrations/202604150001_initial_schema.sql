@@ -3,6 +3,7 @@ create extension if not exists pgcrypto;
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -122,3 +123,16 @@ drop trigger if exists subscription_state_set_updated_at on public.subscription_
 create trigger subscription_state_set_updated_at
 before update on public.subscription_state
 for each row execute function public.set_updated_at();
+
+
+-- Row-Level Security: enable on all tables with no policies.
+-- The backend uses the Supabase secret key which bypasses RLS.
+-- This prevents the anon/public key from accessing any data.
+alter table public.accounts enable row level security;
+alter table public.subscription_state enable row level security;
+alter table public.wallets enable row level security;
+alter table public.subjects enable row level security;
+alter table public.clients enable row level security;
+alter table public.credentials enable row level security;
+alter table public.sessions enable row level security;
+alter table public.siwe_challenges enable row level security;
