@@ -23,7 +23,8 @@ const envSchema = z.object({
   OMATRUST_PAID_ANNUAL_SPONSORED_WRITES: z.coerce.number().int().nonnegative(),
   OMATRUST_PAID_ANNUAL_PREMIUM_READS: z.coerce.number().int().nonnegative(),
   OMATRUST_FREE_ALLOWED_SCHEMA_UIDS: z.string().default(""),
-  OMATRUST_PAID_ALLOWED_SCHEMA_UIDS: z.string().default("*")
+  OMATRUST_PAID_ALLOWED_SCHEMA_UIDS: z.string().default("*"),
+  OMATRUST_SUBJECT_SCOPED_SCHEMA_UIDS: z.string().default("")
 });
 
 export type Env = z.infer<typeof envSchema>;

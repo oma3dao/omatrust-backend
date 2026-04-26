@@ -59,7 +59,8 @@ export const delegatedPreparedAttestationSchema: z.ZodType<PrepareDelegatedAttes
 export const delegatedAttestBodySchema = z.object({
   attester: evmAddressSchema,
   prepared: delegatedPreparedAttestationSchema,
-  signature: hexStringSchema
+  signature: hexStringSchema,
+  subjectDid: z.string().min(1).optional()
 });
 
 export type DelegatedAttestBody = z.infer<typeof delegatedAttestBodySchema>;

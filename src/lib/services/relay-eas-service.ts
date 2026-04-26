@@ -7,12 +7,14 @@ import type { AccountContext } from "@/lib/services/account-service";
 import { assertSubscriptionActive } from "@/lib/services/account-service";
 import { consumePremiumReadEntitlement } from "@/lib/services/subscription-service";
 import { isSchemaAllowedForPlan } from "@/lib/policy/sponsor-policy";
+import { isSubjectScopedSchema } from "@/lib/policy/subject-scoped-policy";
 import { getSupabaseAdmin } from "@/lib/db/admin";
 import { assertSupabase } from "@/lib/db/utils";
 import type { DelegatedTypedDataMessage } from "@/lib/routes/private/relay/eas/delegated-attest-schema";
 import { loadEasDelegatePrivateKey, getThirdwebManagedWallet } from "@/lib/services/eas-delegate-key";
 import { verifyWalletTypedDataSignature } from "@/lib/auth/siwe";
 import { assertWalletUsesSubscriptionExecution } from "@/lib/services/wallet-execution-mode";
+import { verifySubjectOwnership } from "@/lib/services/subject-ownership-service";
 import { createThirdwebClient, getContract, prepareContractCall, defineChain, waitForReceipt, Engine } from "thirdweb";
 
 const EAS_READ_ABI = [
@@ -99,20 +101,23 @@ export async function getRelayNonce(accountContext: AccountContext, attester: st
   assertSubscriptionActive(accountContext.subscriptionState);
 
   const contract = new Contract(chain.contracts.easContract, EAS_READ_ABI, getProvider());
+  let nonce: bigint;
 
   try {
-    const nonce = await contract.getNonce(attester);
-    await consumePremiumReadEntitlement(accountContext.subscriptionState);
-    return {
-      nonce: nonce.toString(),
-      chainId: chain.chainId,
-      chain: chain.name,
-      easAddress: chain.contracts.easContract
-    };
+    nonce = await contract.getNonce(attester);
   } catch (error) {
     console.error("[relay/eas/nonce] RPC failure", error);
     throw new ApiError("Nonce lookup failed", 502, "NONCE_LOOKUP_FAILED");
   }
+
+  await consumePremiumReadEntitlement(accountContext.subscriptionState);
+
+  return {
+    nonce: nonce.toString(),
+    chainId: chain.chainId,
+    chain: chain.name,
+    easAddress: chain.contracts.easContract
+  };
 }
 
 export async function submitDelegatedAttestation(params: {
@@ -120,6 +125,7 @@ export async function submitDelegatedAttestation(params: {
   attester: string;
   prepared: PrepareDelegatedAttestationResult;
   signature: string;
+  subjectDid?: string;
 }) {
   const env = getEnv();
   const chain = getActiveChain();
@@ -163,8 +169,34 @@ export async function submitDelegatedAttestation(params: {
     throw new ApiError("Schema not eligible", 403, "SCHEMA_NOT_ELIGIBLE");
   }
 
-  // Subject-scoped authorization still needs a backend-readable subject hint in the
-  // request payload before V1 can mirror the full onchain key-binding check here.
+  // Subject-scoped schema check: if the schema requires subject ownership,
+  // verify that the attester controls the subject DID before submitting.
+  if (isSubjectScopedSchema(schemaUid)) {
+    if (!params.subjectDid) {
+      throw new ApiError(
+        "This attestation requires subject ownership verification. Please provide a subjectDid.",
+        400,
+        "SUBJECT_OWNERSHIP_REQUIRED"
+      );
+    }
+
+    const walletDid = `did:pkh:eip155:${chain.chainId}:${attester}`;
+    const verification = await verifySubjectOwnership({
+      subjectDid: params.subjectDid,
+      connectedWalletDid: walletDid,
+    });
+
+    if (!verification.ok) {
+      throw new ApiError(
+        verification.error || "Subject ownership verification failed",
+        403,
+        "SUBJECT_OWNERSHIP_REQUIRED",
+        verification.details
+      );
+    }
+
+    console.log(`[relay/eas/delegated-attest] Subject ownership verified: ${params.subjectDid} via ${verification.method}`);
+  }
 
   const deadline = Number(typedDataMessage.deadline);
   if (deadline < Math.floor(Date.now() / 1000)) {

@@ -13,6 +13,7 @@ export async function postRelayEasDelegatedAttest(
     accountContext,
     attester: body.attester,
     prepared: body.prepared,
-    signature: body.signature
+    signature: body.signature,
+    subjectDid: body.subjectDid
   });
 }

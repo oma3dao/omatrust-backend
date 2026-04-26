@@ -131,6 +131,10 @@ OMATRUST_PAID_ANNUAL_SPONSORED_WRITES=1000
 OMATRUST_PAID_ANNUAL_PREMIUM_READS=100000
 OMATRUST_FREE_ALLOWED_SCHEMA_UIDS=0xreplace_with_free_onboarding_schema_uid
 OMATRUST_PAID_ALLOWED_SCHEMA_UIDS=*
+
+# Subject-scoped schemas — require subject ownership verification before relay submission
+# Comma-separated deployed schema UIDs for key-binding, linked-identifier, user-review-response
+OMATRUST_SUBJECT_SCOPED_SCHEMA_UIDS=0xreplace_with_key_binding_uid,0xreplace_with_linked_identifier_uid,0xreplace_with_user_review_response_uid
 ```
 
 Notes:
@@ -141,6 +145,7 @@ Notes:
 - Mainnet and testnet are intended to use the Thirdweb server wallet path.
 - Devnet can use `EAS_DELEGATE_PRIVATE_KEY` as the delegated-signing fallback.
 - `OMATRUST_FREE_ALLOWED_SCHEMA_UIDS` must include at least the schema UID(s) needed for free-tier onboarding, or the free sponsored write allowance will exist in the database but remain unusable in practice.
+- `OMATRUST_SUBJECT_SCOPED_SCHEMA_UIDS` must include the deployed UIDs for schemas that require subject ownership verification (key-binding, linked-identifier, user-review-response). When a new subject-scoped schema is deployed, add its UID here. These UIDs are chain-specific — use the deployed UIDs from `rep-attestation-tools-evm-solidity` for the active chain.
 
 ### 4. Chain Presets
 
