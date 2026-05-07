@@ -1,4 +1,6 @@
-const OMACHAIN_TESTNET_CHAIN_ID = "66238";
+import { getEnv } from "@/lib/config/env";
+
+const OMACHAIN_TESTNET_CHAIN_ID = "eip155:66238";
 
 export const TRUST_ANCHORS_VERSION = 1;
 
@@ -46,37 +48,80 @@ const CHAIN_TRUST_ANCHORS: Record<string, ChainTrustAnchors> = {
 };
 
 /**
- * Approved issuers.
+ * Approved issuers (production).
  *
+ * These are trusted on ALL environments including mainnet.
  * Each entry specifies which attestation schemas the issuer is authorized for.
- * A certification body may be approved for "certification" but not
- * "security-assessment", and vice versa.
  *
- * These are OMA3-recognized third-party issuers whose attestations carry
- * additional trust weight. Attestations from non-approved issuers are still
- * valid on-chain — approval is a trust signal, not a protocol requirement.
- *
- * Note: OMA3-operated internal wallets (relay, admin, controller-witness
- * attesters) are tracked in oma3-ops/oma3-internal-addresses.json and are
- * NOT listed here. This list is for external issuers recognized by OMA3.
+ * Attestations from non-approved issuers are still valid on-chain —
+ * approval is a trust signal, not a protocol requirement.
  */
 const APPROVED_ISSUERS: ApprovedIssuer[] = [
-  // No approved third-party issuers yet. Example:
+  // --- OMA3 mainnet wallets: controller-witness only ---
+  {
+    address: "0x96fa5ab5E519641bD8A840A6b26D17DB7497618b",
+    label: "OMA3 Mainnet Attestation Wallet",
+    schemas: ["controller-witness"],
+  },
+  // --- Third-party issuers: certification / security-assessment ---
   // {
-  //   address: "0x1234...",
+  //   address: "0x...",
   //   label: "Example Security Lab",
   //   schemas: ["security-assessment"],
   // },
+  // {
+  //   address: "0x...",
+  //   label: "Example Certification Body",
+  //   schemas: ["certification"],
+  // },
 ];
 
+/**
+ * Approved test issuers (testnet / devnet only).
+ *
+ * These are ONLY included when OMATRUST_ACTIVE_CHAIN is not omachain-mainnet.
+ * They allow testnet wallets to appear as trusted attesters during development
+ * without polluting the mainnet trust set.
+ */
+const APPROVED_TEST_ISSUERS: ApprovedIssuer[] = [
+  {
+    address: "0x6f05D46cD048d3249F4Db6BAd6d06e2069BCD5eb",
+    label: "OMA3 Testnet Attestation Wallet",
+    schemas: ["controller-witness"],
+  },
+  {
+    address: "0x7D5beD223Bc343F114Aa28961Cc447dbbc9c2330",
+    label: "OMA3 Legacy Testnet Issuer",
+    schemas: ["controller-witness"],
+  },
+  {
+    address: "0x766910dc543034ce7a6525c1307c5b6fe92ebb0b",
+    label: "OMA3 Legacy Testnet Issuer",
+    schemas: ["controller-witness"],
+  },
+];
+
+function getEffectiveIssuers(): ApprovedIssuer[] {
+  const env = getEnv();
+  const isMainnet = env.OMATRUST_ACTIVE_CHAIN === "omachain-mainnet";
+
+  if (isMainnet) {
+    return APPROVED_ISSUERS;
+  }
+
+  return [...APPROVED_ISSUERS, ...APPROVED_TEST_ISSUERS];
+}
+
 export async function getPublicTrustAnchors(): Promise<TrustAnchors> {
+  const issuers = getEffectiveIssuers();
+
   return {
     version: TRUST_ANCHORS_VERSION,
-    updatedAt: "2026-05-02T00:00:00Z",
+    updatedAt: "2026-05-04T00:00:00Z",
     widgetOrigins: [],
     chains: CHAIN_TRUST_ANCHORS,
-    registries: APPROVED_ISSUERS.length > 0
-      ? [{ type: "approved-issuers", issuers: APPROVED_ISSUERS }]
+    registries: issuers.length > 0
+      ? [{ type: "approved-issuers", issuers }]
       : [],
   };
 }
