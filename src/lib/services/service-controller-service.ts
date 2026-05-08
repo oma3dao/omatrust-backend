@@ -3,13 +3,15 @@ import { promisify } from "node:util";
 import {
   buildDidPkhFromCaip10,
   extractAddressFromDid,
+  extractControllerEvmAddress,
   getDomainFromDidWeb,
+  isSameControllerId,
   normalizeDid
 } from "@oma3/omatrust/identity";
 import {
   parseDnsTxtRecord,
   fetchDidDocument,
-  extractAddressesFromDidDocument,
+  extractEvmAddressesFromDidDocument,
 } from "@oma3/omatrust/reputation";
 import { ApiError } from "@/lib/errors";
 import { resolveIdentity, type IdentityResolution } from "@/lib/services/identity-resolver-service";
@@ -144,14 +146,14 @@ async function discoverDnsKeys(domain: string, host: string): Promise<Controller
 
 /**
  * Discover controller keys from a DID document using the SDK's parser.
- * Uses extractAddressesFromDidDocument which properly parses verificationMethod entries.
+ * Uses extractEvmAddressesFromDidDocument which properly parses verificationMethod entries.
  */
 async function discoverDidJsonKeys(domain: string): Promise<ControllerEvidenceSource> {
   const url = `https://${domain}/.well-known/did.json`;
 
   try {
     const didDocument = await fetchDidDocument(domain);
-    const addresses = extractAddressesFromDidDocument(didDocument);
+    const addresses = extractEvmAddressesFromDidDocument(didDocument);
     const keys = addresses
       .map((addr) => canonicalKey(`did:pkh:eip155:1:${addr}`))
       .filter((key): key is string => !!key);
@@ -176,6 +178,28 @@ async function discoverDidJsonKeys(domain: string): Promise<ControllerEvidenceSo
   }
 }
 
+/**
+ * Find an existing key in the map that refers to the same controller,
+ * using chain-agnostic matching (same EVM address across different chains).
+ */
+function findExistingKey(
+  keyMap: Map<string, ControllerKeySummary>,
+  canonicalId: string
+): [string, ControllerKeySummary] | null {
+  // Exact match first
+  const exact = keyMap.get(canonicalId);
+  if (exact) return [canonicalId, exact];
+
+  // Chain-agnostic match via isSameControllerId
+  for (const [existingId, summary] of keyMap.entries()) {
+    if (isSameControllerId(existingId, canonicalId)) {
+      return [existingId, summary];
+    }
+  }
+
+  return null;
+}
+
 function addControllerKey(
   keyMap: Map<string, ControllerKeySummary>,
   keyId: string,
@@ -183,7 +207,10 @@ function addControllerKey(
 ) {
   const canonicalId = canonicalKey(keyId) ?? keyId;
   logger.debug(`[controller] addControllerKey: keyId="${keyId}" canonical="${canonicalId}" source="${source}"`);
-  const existing = keyMap.get(canonicalId) ?? {
+
+  const found = findExistingKey(keyMap, canonicalId);
+  const mapKey = found ? found[0] : canonicalId;
+  const existing = found ? found[1] : {
     id: keyId,
     canonicalId,
     label: resolveIdentity(canonicalId).label,
@@ -199,8 +226,8 @@ function addControllerKey(
     existing.basic = true;
   }
 
-  logger.debug(`[controller] Key state after add: canonical="${canonicalId}" sources=${JSON.stringify(existing.sources)} basic=${existing.basic}`);
-  keyMap.set(canonicalId, existing);
+  logger.debug(`[controller] Key state after add: canonical="${mapKey}" sources=${JSON.stringify(existing.sources)} basic=${existing.basic}`);
+  keyMap.set(mapKey, existing);
 }
 
 function registryIncludesIssuer(issuers: Array<{ address: string; schemas: string[] }>, identifiers: string[]) {
@@ -291,7 +318,6 @@ export async function getServiceControllerSummary(
   if (domain) {
     const discovered = await Promise.all([
       discoverDnsKeys(domain, "_controllers"),
-      discoverDnsKeys(domain, "_omatrust"),
       discoverDidJsonKeys(domain)
     ]);
 
