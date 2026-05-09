@@ -14,7 +14,7 @@ import type { DelegatedTypedDataMessage } from "@/lib/routes/private/relay/eas/d
 import { loadEasDelegatePrivateKey, getThirdwebManagedWallet } from "@/lib/services/eas-delegate-key";
 import { verifyWalletTypedDataSignature } from "@/lib/auth/siwe";
 import { assertWalletUsesSubscriptionExecution } from "@/lib/services/wallet-execution-mode";
-import { verifySubjectOwnership } from "@/lib/services/subject-ownership-service";
+import { handleSubjectOwnershipVerification } from "@/lib/services/subject-ownership-service";
 import { createThirdwebClient, getContract, prepareContractCall, defineChain, waitForReceipt, Engine } from "thirdweb";
 
 const EAS_READ_ABI = [
@@ -181,7 +181,7 @@ export async function submitDelegatedAttestation(params: {
     }
 
     const walletDid = `did:pkh:eip155:${chain.chainId}:${attester}`;
-    const verification = await verifySubjectOwnership({
+    const verification = await handleSubjectOwnershipVerification({
       subjectDid: params.subjectDid,
       connectedWalletDid: walletDid,
     });

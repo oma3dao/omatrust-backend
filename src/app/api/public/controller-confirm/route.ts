@@ -5,6 +5,7 @@ import {
 } from "@/lib/routes/public/controller-confirm";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export const GET = withRoute({
   auth: "none",

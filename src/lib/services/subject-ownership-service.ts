@@ -115,7 +115,7 @@ function toApiError(error: unknown): ApiError {
   return new ApiError("Internal error", 500, "INTERNAL_ERROR");
 }
 
-export async function verifySubjectOwnership(
+export async function handleSubjectOwnershipVerification(
   params: VerifySubjectOwnershipParams,
   deps: VerifySubjectOwnershipDeps = {}
 ): Promise<SubjectOwnershipVerificationResult> {

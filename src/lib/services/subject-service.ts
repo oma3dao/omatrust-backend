@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import type { AccountContext } from "@/lib/services/account-service";
 import { getAuthenticatedWalletFromContext } from "@/lib/services/wallet-execution-mode";
 import {
-  verifySubjectOwnership,
+  handleSubjectOwnershipVerification,
   type SubjectOwnershipVerificationResult
 } from "@/lib/services/subject-ownership-service";
 
@@ -66,7 +66,7 @@ export async function assertSubjectOwnershipVerifiedForAccount(
     );
   }
 
-  const verifyFn = deps.verifyFn ?? verifySubjectOwnership;
+  const verifyFn = deps.verifyFn ?? handleSubjectOwnershipVerification;
   const result = await verifyFn({
     subjectDid: did,
     connectedWalletDid: authenticatedWallet.did
