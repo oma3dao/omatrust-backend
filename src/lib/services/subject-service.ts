@@ -132,19 +132,6 @@ export async function addSubjectToAccount(accountContext: AccountContext, did: s
     throw new ApiError("Subject already exists", 409, "SUBJECT_ALREADY_EXISTS");
   }
 
-  const existingGlobal = await supabase
-    .from("subjects")
-    .select("account_id")
-    .eq("canonical_did", canonicalDid)
-    .maybeSingle();
-
-  if (existingGlobal.data && existingGlobal.data.account_id !== accountId) {
-    throw new ApiError("Subject owned by another account", 409, "SUBJECT_OWNED_BY_ANOTHER_ACCOUNT");
-  }
-
-  if (existingGlobal.error && !isNoRowsError(existingGlobal.error)) {
-    assertSupabase(existingGlobal.data, existingGlobal.error, "Failed to check subject ownership");
-  }
 
   const insert = await supabase
     .from("subjects")
