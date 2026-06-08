@@ -6,7 +6,7 @@ export function getThirdwebManagedWallet(): { secretKey: string; walletAddress: 
   const secretKey = process.env.THIRDWEB_SECRET_KEY;
   const walletAddress = process.env.THIRDWEB_SERVER_WALLET_ADDRESS;
 
-  if (secretKey && walletAddress) {
+  if (secretKey && walletAddress && walletAddress.startsWith("0x")) {
     console.log("[eas-delegate-key] Thirdweb Managed Vault configured");
     return { secretKey, walletAddress };
   }

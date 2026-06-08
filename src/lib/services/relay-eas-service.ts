@@ -328,7 +328,7 @@ export async function submitDelegatedAttestation(params: {
       const { transactionId } = await serverWallet.enqueueTransaction({ transaction });
       console.log(`[relay/eas/delegated-attest] Enqueued transaction: ${transactionId}`);
 
-      const txResult = await Engine.waitForTransactionHash({ client, transactionId });
+      const txResult = await Engine.waitForTransactionHash({ client, transactionId, timeoutInSeconds: 120 });
       console.log(`[relay/eas/delegated-attest] Transaction sent: ${txResult.transactionHash}`);
 
       const receipt = await waitForReceipt({
@@ -390,7 +390,15 @@ export async function submitDelegatedAttestation(params: {
     if (error instanceof ApiError) {
       throw error;
     }
-    throw new ApiError("Relay submission failed", 502, "RELAY_SUBMISSION_FAILED");
+    const errMsg = error instanceof Error ? error.message : "Unknown error";
+    const isTimeout = errMsg.includes("timed out");
+    throw new ApiError(
+      isTimeout
+        ? "Transaction was queued but not confirmed in time. The server wallet may not be processing transactions for this chain."
+        : `Relay submission failed: ${errMsg}`,
+      502,
+      isTimeout ? "RELAY_TX_TIMEOUT" : "RELAY_SUBMISSION_FAILED"
+    );
   }
 
   const attestedEventTopic = "0x8bf46bf4cfd674fa735a3d63ec1c9ad4153f033c290341f3a588b75685141b35";
