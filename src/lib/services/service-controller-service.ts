@@ -230,7 +230,7 @@ function addControllerKey(
   keyMap.set(mapKey, existing);
 }
 
-function registryIncludesIssuer(issuers: Array<{ address: string; schemas: string[] }>, identifiers: string[]) {
+function registryIncludesIssuer(issuers: Array<{ address: string; schemas: string[]; status: string }>, identifiers: string[]) {
   const needles = identifiers.flatMap((identifier) => {
     const values = [identifier];
     try {
@@ -247,6 +247,7 @@ function registryIncludesIssuer(issuers: Array<{ address: string; schemas: strin
   }).map((value) => value.toLowerCase());
 
   return issuers.some((issuer) =>
+    issuer.status === "active" &&
     needles.some((needle) => issuer.address.toLowerCase() === needle)
   );
 }

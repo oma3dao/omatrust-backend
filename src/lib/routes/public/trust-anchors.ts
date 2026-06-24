@@ -14,6 +14,9 @@ export type ApprovedIssuer = {
   address: string;
   label: string;
   schemas: string[];
+  status: "active" | "revoked";
+  validFrom: string;
+  revokedAt?: string;
 };
 
 export type ApprovedIssuerRegistry = {
@@ -62,17 +65,16 @@ const APPROVED_ISSUERS: ApprovedIssuer[] = [
     address: "0x96fa5ab5E519641bD8A840A6b26D17DB7497618b",
     label: "OMA3 Mainnet Attestation Wallet",
     schemas: ["controller-witness"],
+    status: "active",
+    validFrom: "2026-05-01T00:00:00Z",
   },
   // --- Third-party issuers: certification / security-assessment ---
   // {
   //   address: "0x...",
   //   label: "Example Security Lab",
   //   schemas: ["security-assessment"],
-  // },
-  // {
-  //   address: "0x...",
-  //   label: "Example Certification Body",
-  //   schemas: ["certification"],
+  //   status: "active",
+  //   validFrom: "2026-05-01T00:00:00Z",
   // },
 ];
 
@@ -88,16 +90,22 @@ const APPROVED_TEST_ISSUERS: ApprovedIssuer[] = [
     address: "0x6f05D46cD048d3249F4Db6BAd6d06e2069BCD5eb",
     label: "OMA3 Testnet Attestation Wallet",
     schemas: ["controller-witness"],
+    status: "active",
+    validFrom: "2026-05-01T00:00:00Z",
   },
   {
     address: "0x7D5beD223Bc343F114Aa28961Cc447dbbc9c2330",
     label: "OMA3 Legacy Testnet Issuer",
     schemas: ["controller-witness"],
+    status: "active",
+    validFrom: "2026-05-01T00:00:00Z",
   },
   {
     address: "0x766910dc543034ce7a6525c1307c5b6fe92ebb0b",
     label: "OMA3 Legacy Testnet Issuer",
     schemas: ["controller-witness"],
+    status: "active",
+    validFrom: "2026-05-01T00:00:00Z",
   },
 ];
 
