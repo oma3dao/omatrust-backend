@@ -94,3 +94,18 @@ export interface SiweChallengeRow {
   used_at: string | null;
   created_at: string;
 }
+
+export type KeyType = "attestation" | "service-signing";
+export type KeyMetadataTag = "x402" | "mcp" | "software-release" | "generic-signing" | "other";
+
+export interface KeyMetadataRow {
+  id: string;
+  account_id: string;
+  key_did: string;
+  key_type: KeyType;
+  display_name: string;
+  tags: string[];
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}

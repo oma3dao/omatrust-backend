@@ -14,7 +14,7 @@
 
 import { SchemaEncoder } from "@ethereum-attestation-service/eas-sdk";
 import { Contract } from "ethers";
-import { normalizeDid, getDomainFromDidWeb } from "@oma3/omatrust/identity";
+import { normalizeDid, getDomainFromDidWeb, isSameControllerId } from "@oma3/omatrust/identity";
 import { getActiveChain, getEnv } from "@/lib/config/env";
 import { getPremiumRpcProvider } from "@/lib/config/rpc";
 import { ApiError } from "@/lib/errors";
@@ -76,7 +76,7 @@ export async function submitControllerWitness(
 
   // --- Step 2: Verify chain has controller-witness schema deployed ---
   const trustAnchors = await getPublicTrustAnchors();
-  const chainAnchors = trustAnchors.chains[String(chain.id)];
+  const chainAnchors = trustAnchors.chains[`eip155:${chain.id}`];
   if (!chainAnchors) {
     throw new ApiError(`Chain ${chain.id} not configured in trust anchors`, 500, "CHAIN_NOT_CONFIGURED");
   }
@@ -124,7 +124,7 @@ export async function submitControllerWitness(
 
   // Check if the controller was found in endpoint evidence
   const controllerKey = summary.controllerKeys.find(
-    (key) => key.canonicalId.toLowerCase() === normalizedController.toLowerCase() && key.basic
+    (key) => isSameControllerId(key.canonicalId, normalizedController) && key.basic
   );
 
   if (!controllerKey) {

@@ -276,6 +276,42 @@ export interface Database {
         };
         Relationships: [];
       };
+      key_metadata: {
+        Row: {
+          id: string;
+          account_id: string;
+          key_did: string;
+          key_type: "attestation" | "service-signing";
+          display_name: string;
+          tags: string[];
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          account_id: string;
+          key_did: string;
+          key_type: "attestation" | "service-signing";
+          display_name: string;
+          tags?: string[];
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          account_id?: string;
+          key_did?: string;
+          key_type?: "attestation" | "service-signing";
+          display_name?: string;
+          tags?: string[];
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

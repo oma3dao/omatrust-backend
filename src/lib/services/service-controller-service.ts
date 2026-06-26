@@ -87,12 +87,12 @@ function canonicalKey(value: string): string | null {
     if (trimmed.startsWith("did:")) {
       const normalized = normalizeDid(trimmed);
       if (!isPrivateKeyDid(normalized)) return null;
-      return normalized.toLowerCase();
+      return normalized;
     }
 
     // CAIP-10 format (e.g., eip155:1:0xabc...) → convert to did:pkh
     if (/^[a-z0-9-]+:[a-zA-Z0-9-]+:.+$/i.test(trimmed)) {
-      return normalizeDid(buildDidPkhFromCaip10(trimmed)).toLowerCase();
+      return normalizeDid(buildDidPkhFromCaip10(trimmed));
     }
   } catch {
     return null;
