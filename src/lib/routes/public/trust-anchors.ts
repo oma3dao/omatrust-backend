@@ -95,7 +95,7 @@ const APPROVED_TEST_ISSUERS: ApprovedIssuer[] = [
   },
   {
     address: "0x7D5beD223Bc343F114Aa28961Cc447dbbc9c2330",
-    label: "OMA3 Legacy Testnet Issuer",
+    label: "OMA3 Localhost Testnet Issuer",
     schemas: ["controller-witness"],
     status: "active",
     validFrom: "2026-05-01T00:00:00Z",
