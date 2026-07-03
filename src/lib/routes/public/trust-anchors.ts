@@ -48,6 +48,19 @@ const CHAIN_TRUST_ANCHORS: Record<string, ChainTrustAnchors> = {
       "user-review-response": "0x53498ae8ae4928a8789e09663f44d6e3c77daeb703c3765aa184b958c3ca41be",
     },
   },
+  "eip155:6623": {
+    name: "OMAChain Mainnet",
+    easContract: "0x00Bd6f0Ee99bD76273B57e6dDEc5B00850c6b76C",
+    schemas: {
+      "certification": "0x2b0d1100f7943c0c2ea29e35c1286bd860fa752124e035cafb503bb83f234805",
+      "controller-witness": "0xc81419f828755c0be2c49091dcad0887b5ca7342316dfffb4314aadbf8205090",
+      "key-binding": "0x807b38ce9aa23fdde4457de01db9c5e8d6ec7c8feebee242e52be70847b7b966",
+      "linked-identifier": "0x56d1e74383cbcfb89e23b25f444a081951a5d2fa7876b159da082b8cbd967af8",
+      "security-assessment": "0x67bcc2424e3721d56e85bb650c6aba8bf7f1711d9c9a434c3afae3a22d23eed7",
+      "user-review": "0x7ab3911527e5e47eaab9f5a2c571060026532dde8cb4398185553053963b2a47",
+      "user-review-response": "0x53498ae8ae4928a8789e09663f44d6e3c77daeb703c3765aa184b958c3ca41be",
+    },
+  },
 };
 
 /**

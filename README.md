@@ -35,13 +35,14 @@ This repository does not contain:
 1. Copy `.env.example` to `.env.local`.
 2. Fill in the required values.
 3. Apply the initial database schema to the database.
-4. Install dependencies:
+4. Install dependencies and build:
 
    ```bash
    npm install
+   npm run build
    ```
 
-5. Start the backend:
+5. Start the backend to develop locally:
 
    ```bash
    npm run dev
@@ -51,12 +52,14 @@ This repository does not contain:
 
 ## Deployment Setup
 
+> **Environment variable values and Vercel environment configuration** are documented in the [Deployment Guide](https://github.com/oma3dao/omatrust-docs/blob/main/operations/deployment-rep-attestation.md) (Section 6). This section covers the project setup steps and variable semantics.
+
 ### 1. Create the Supabase Project
 
 Create a new Supabase project for this backend. Then collect:
 
-- project URL
-- service role key
+- **API URL** — found in Integrations → Data API (the `https://<project-ref>.supabase.co` URL)
+- **Secret key** — found in Settings → API Keys → Secret Keys (create one if none exist; this replaces the legacy `service_role` key)
 
 Apply the initial schema in:
 
@@ -75,79 +78,11 @@ Create a Vercel project pointing at this repository and set the root directory t
 
 - `omatrust-backend`
 
-Add the environment variables from `.env.example`.
+Add the environment variables from [`.env.example`](./.env.example). The file is grouped and commented with usage notes for each variable. For per-environment values (domains, keys, chain settings), see the [Deployment Guide](https://github.com/oma3dao/omatrust-docs/blob/main/operations/deployment-rep-attestation.md) (Section 6).
 
-The important groups are:
+Configure custom domains for each Vercel environment as described in the [Deployment Guide](https://github.com/oma3dao/omatrust-docs/blob/main/operations/deployment-rep-attestation.md) (Sections 4 and 6). Add the appropriate DNS CNAME records pointing to `cname.vercel-dns.com`.
 
-- backend origin and debug
-- session + SIWE
-- Supabase
-- Stripe
-- delegated EAS signing
-- chain + premium RPC
-- sponsor policy
-
-### 3. Required Environment Variables
-
-These are the main required runtime values:
-
-```bash
-# Backend origin
-OMATRUST_BACKEND_URL=
-OMATRUST_DEBUG=false
-
-# Session + SIWE
-OMATRUST_SESSION_SECRET=
-OMATRUST_SESSION_TTL_HOURS=24
-OMATRUST_SIWE_NONCE_TTL_MINUTES=10
-OMATRUST_ALLOWED_SIWE_DOMAINS=
-OMATRUST_ALLOWED_CORS_ORIGINS=
-OMATRUST_BROWSER_CLIENT_ID=omatrust-browser
-
-# Supabase
-SUPABASE_URL=
-SUPABASE_SECRET_KEY=
-
-# Stripe
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_PAID_PRICE_ID=
-
-# Delegated EAS signing
-THIRDWEB_SECRET_KEY=
-THIRDWEB_SERVER_WALLET_ADDRESS=
-EAS_DELEGATE_PRIVATE_KEY=
-
-# Chain + premium RPC
-OMATRUST_ACTIVE_CHAIN=omachain-testnet
-OMATRUST_PREMIUM_RPC_URL=
-OMATRUST_PREMIUM_RPC_MAX_LOG_RANGE=50000
-OMATRUST_MAX_GAS_PER_TX=800000
-
-# Sponsor policy
-OMATRUST_FREE_ANNUAL_SPONSORED_WRITES=10
-OMATRUST_FREE_ANNUAL_PREMIUM_READS=100
-OMATRUST_PAID_ANNUAL_SPONSORED_WRITES=1000
-OMATRUST_PAID_ANNUAL_PREMIUM_READS=100000
-OMATRUST_FREE_ALLOWED_SCHEMA_UIDS=0xreplace_with_free_onboarding_schema_uid
-OMATRUST_PAID_ALLOWED_SCHEMA_UIDS=*
-
-# Subject-scoped schemas — require subject ownership verification before relay submission
-# Comma-separated deployed schema UIDs for key-binding, linked-identifier, user-review-response
-OMATRUST_SUBJECT_SCOPED_SCHEMA_UIDS=0xreplace_with_key_binding_uid,0xreplace_with_linked_identifier_uid,0xreplace_with_user_review_response_uid
-```
-
-Notes:
-
-- `OMATRUST_ACTIVE_CHAIN` selects a preset from `src/lib/config/chains.ts`.
-- `OMATRUST_ALLOWED_CORS_ORIGINS` should list the exact browser origins allowed to call the backend with `credentials: "include"`, for example preview frontend origins and `http://localhost:3000`.
-- `OMATRUST_PREMIUM_RPC_URL` is separate from chain presets because it is infrastructure-specific.
-- Mainnet and testnet are intended to use the Thirdweb server wallet path.
-- Devnet can use `EAS_DELEGATE_PRIVATE_KEY` as the delegated-signing fallback.
-- `OMATRUST_FREE_ALLOWED_SCHEMA_UIDS` must include at least the schema UID(s) needed for free-tier onboarding, or the free sponsored write allowance will exist in the database but remain unusable in practice.
-- `OMATRUST_SUBJECT_SCOPED_SCHEMA_UIDS` must include the deployed UIDs for schemas that require subject ownership verification (key-binding, linked-identifier, user-review-response). When a new subject-scoped schema is deployed, add its UID here. These UIDs are chain-specific — use the deployed UIDs from `rep-attestation-tools-evm-solidity` for the active chain.
-
-### 4. Chain Presets
+### 3. Chain Presets
 
 The backend derives chain metadata from `src/lib/config/chains.ts`.
 
@@ -165,28 +100,45 @@ Each preset supplies:
 - explorer URL
 - EAS contract address
 
-### 5. Stripe Webhook
+### 4. Stripe Webhook
 
 After the backend is deployed, create a Stripe webhook that points to:
 
 - `https://<your-backend-domain>/api/private/subscriptions/stripe-webhook`
 
+Subscribe to these events:
+
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `invoice.payment_failed`
+
 Use the webhook signing secret as:
 
 - `STRIPE_WEBHOOK_SECRET`
 
-### 6. Sanity Check the Deployment
+### 5. Sanity Check the Deployment
 
-After deploying:
+After deploying, verify the backend is running. Replace the domain based on the environment:
+- **Mainnet:** `backend.omatrust.org`
+- **Testnet:** `test.backend.omatrust.org`
+- **Devnet:** `dev.backend.omatrust.org`
 
-1. Confirm the backend boots in Vercel.
-2. Hit `GET /api/health`.
-3. Test wallet login:
-   - `POST /api/private/session/wallet/challenge`
-   - `POST /api/private/session/wallet/verify`
-4. Confirm `GET /api/private/session/me` returns account/session state.
-5. Confirm `GET /api/private/relay/eas/nonce` works for an active subscription.
-6. Confirm `POST /api/private/rpc-premium` can proxy allowed JSON-RPC reads.
+```bash
+# Health check — expect 200 with {"ok":true}
+curl -i https://<domain>/api/health
+
+# Trust anchors — expect 200 with chain and issuer data
+curl https://<domain>/api/public/trust-anchors
+
+# SIWE challenge — expect 200 with nonce and message
+curl -X POST https://<domain>/api/private/session/wallet/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"walletAddress":"0x0000000000000000000000000000000000000000","chainId":6623}'
+```
+
+The remaining endpoints (verify, session, relay, rpc-premium) require an authenticated session and are best tested through the frontend.
 
 ## Architecture
 

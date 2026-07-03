@@ -15,12 +15,12 @@ export const omachainMainnet = {
   key: "omachain-mainnet",
   id: 6623,
   chainId: 6623,
-  rpc: "https://rpc.chain.oma3.org/",
-  name: "OMAchain Mainnet",
+  rpc: "https://rpc.omachain.org/",
+  name: "OMAChain Mainnet",
   testnet: false,
-  explorerUrl: "https://explorer.chain.oma3.org/",
+  explorerUrl: "https://explorer.omachain.org/",
   contracts: {
-    easContract: "0x0000000000000000000000000000000000000000"
+    easContract: "0x00Bd6f0Ee99bD76273B57e6dDEc5B00850c6b76C"
   }
 } as const;
 
