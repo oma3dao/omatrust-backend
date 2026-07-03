@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import { createNonce, buildSiweChallengeMessage, normalizeWalletDid, verifySiweMessage } from "@/lib/auth/siwe";
 import { getEnv } from "@/lib/config/env";
 import { ensureBrowserClient } from "@/lib/services/client-service";
-import { getOrCreateAccountForWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
+import { getExistingAccountForWallet, createAccountForNewWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
 import { getOrCreateWalletCredential } from "@/lib/services/credential-service";
 import { signSessionToken, verifySessionToken } from "@/lib/auth/session-token";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/cookies";
@@ -83,13 +83,56 @@ async function loadChallenge(challengeId: string) {
   return result.data;
 }
 
-export async function verifySiweChallengeAndCreateSession(params: {
+/**
+ * Sign-in flow: verify SIWE and load existing account.
+ * Throws ACCOUNT_NOT_FOUND if the wallet has no account.
+ */
+export async function verifySiweChallengeAndSignIn(params: {
+  challengeId: string;
+  walletDid: string;
+  signature: string;
+  siweMessage: string;
+  walletProviderId?: string | null;
+}) {
+  const { challenge, normalizedWallet } = await verifySiweChallenge(params);
+
+  const accountContext = await getExistingAccountForWallet({
+    walletDid: normalizedWallet.walletDid
+  });
+
+  return finalizeSession({ accountContext, normalizedWallet, challenge });
+}
+
+/**
+ * Register flow: verify SIWE and create a new account.
+ * Throws ACCOUNT_ALREADY_EXISTS if the wallet already has an account.
+ */
+export async function verifySiweChallengeAndRegister(params: {
   challengeId: string;
   walletDid: string;
   signature: string;
   siweMessage: string;
   walletProviderId?: string | null;
   executionMode?: WalletExecutionMode | null;
+}) {
+  const { challenge, normalizedWallet } = await verifySiweChallenge(params);
+
+  const accountContext = await createAccountForNewWallet({
+    walletDid: normalizedWallet.walletDid,
+    walletAddress: normalizedWallet.walletAddress,
+    walletProviderId: params.walletProviderId ?? null,
+    executionMode: params.executionMode ?? null
+  });
+
+  return finalizeSession({ accountContext, normalizedWallet, challenge });
+}
+
+/** Shared: verify the SIWE challenge and signature */
+async function verifySiweChallenge(params: {
+  challengeId: string;
+  walletDid: string;
+  signature: string;
+  siweMessage: string;
 }) {
   const challenge = await loadChallenge(params.challengeId);
   const normalizedWallet = normalizeWalletDid(params.walletDid);
@@ -108,13 +151,17 @@ export async function verifySiweChallengeAndCreateSession(params: {
     siweMessage: params.siweMessage
   });
 
+  return { challenge, normalizedWallet };
+}
+
+/** Shared: create session, credential, and token after account is resolved */
+async function finalizeSession(params: {
+  accountContext: AccountContext;
+  normalizedWallet: ReturnType<typeof normalizeWalletDid>;
+  challenge: SiweChallengeRow;
+}) {
+  const { accountContext, normalizedWallet, challenge } = params;
   const browserClient = await ensureBrowserClient();
-  const accountContext = await getOrCreateAccountForWallet({
-    walletDid: normalizedWallet.walletDid,
-    walletAddress: normalizedWallet.walletAddress,
-    walletProviderId: params.walletProviderId ?? null,
-    executionMode: params.executionMode ?? null
-  });
 
   const authenticatedWallet =
     accountContext.wallets.find((wallet) => wallet.did === normalizedWallet.walletDid) ??

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { EvmOwnershipProvider } from "@oma3/omatrust/reputation";
-import { verifySubjectOwnership } from "./subject-ownership-service.ts";
+import { handleSubjectOwnershipVerification } from "./subject-ownership-service.ts";
 
 function createProvider(overrides: Partial<EvmOwnershipProvider> = {}): EvmOwnershipProvider {
   return {
@@ -21,7 +21,7 @@ function createProvider(overrides: Partial<EvmOwnershipProvider> = {}): EvmOwner
 test("verifySubjectOwnership rejects unsupported DID methods", async () => {
   await assert.rejects(
     () =>
-      verifySubjectOwnership({
+      handleSubjectOwnershipVerification({
         subjectDid: "did:key:z6Mkgfakesubject",
         connectedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
       }),
@@ -31,7 +31,7 @@ test("verifySubjectOwnership rejects unsupported DID methods", async () => {
 });
 
 test("verifySubjectOwnership verifies did:web via DNS TXT", async () => {
-  const result = await verifySubjectOwnership(
+  const result = await handleSubjectOwnershipVerification(
     {
       subjectDid: "did:web:example.com",
       connectedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
@@ -49,7 +49,7 @@ test("verifySubjectOwnership verifies did:web via DNS TXT", async () => {
 });
 
 test("verifySubjectOwnership falls back to did.json for did:web", async () => {
-  const result = await verifySubjectOwnership(
+  const result = await handleSubjectOwnershipVerification(
     {
       subjectDid: "did:web:example.com",
       connectedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
@@ -72,7 +72,7 @@ test("verifySubjectOwnership falls back to did.json for did:web", async () => {
 });
 
 test("verifySubjectOwnership verifies direct did:pkh wallet ownership", async () => {
-  const result = await verifySubjectOwnership(
+  const result = await handleSubjectOwnershipVerification(
     {
       subjectDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111",
       connectedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"

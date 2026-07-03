@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
-import { setSessionCookie, verifySiweChallengeAndSignIn } from "@/lib/services/session-service";
+import { setSessionCookie, verifySiweChallengeAndRegister } from "@/lib/services/session-service";
 
-export const sessionVerifyBodySchema = z.object({
+export const sessionRegisterBodySchema = z.object({
   challengeId: z.string().min(1),
   walletDid: z.string().min(1),
   signature: z.string().min(1),
@@ -11,8 +11,8 @@ export const sessionVerifyBodySchema = z.object({
   executionMode: z.enum(["subscription", "native"]).optional().nullable()
 });
 
-export async function postSessionVerify(body: z.infer<typeof sessionVerifyBodySchema>) {
-  const result = await verifySiweChallengeAndSignIn(body);
+export async function postSessionRegister(body: z.infer<typeof sessionRegisterBodySchema>) {
+  const result = await verifySiweChallengeAndRegister(body);
 
   const response = NextResponse.json({
     account: {

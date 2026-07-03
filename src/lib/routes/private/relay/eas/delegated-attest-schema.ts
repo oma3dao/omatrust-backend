@@ -17,7 +17,7 @@ const delegatedTypedDataMessageSchema = z.object({
   expirationTime: numericStringSchema,
   revocable: z.boolean(),
   refUID: hexStringSchema,
-  data: hexStringSchema,
+  data: hexStringSchema.max(20000, "Encoded attestation data exceeds 10KB limit"),
   value: numericStringSchema,
   nonce: numericStringSchema,
   deadline: numericStringSchema
@@ -32,7 +32,7 @@ const delegatedRequestSchema = z.object({
   expirationTime: numericStringSchema,
   revocable: z.boolean(),
   refUID: hexStringSchema,
-  data: hexStringSchema,
+  data: hexStringSchema.max(20000, "Encoded attestation data exceeds 10KB limit"),
   value: numericStringSchema,
   nonce: numericStringSchema,
   deadline: numericStringSchema

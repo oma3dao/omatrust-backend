@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { json } from "@/lib/http";
-import { verifySubjectOwnership } from "@/lib/services/subject-ownership-service";
+import { handleSubjectOwnershipVerification } from "@/lib/services/subject-ownership-service";
 import logger from "@/lib/logger";
 
 export const verifySubjectOwnershipBodySchema = z.object({
@@ -10,7 +10,7 @@ export const verifySubjectOwnershipBodySchema = z.object({
 });
 
 export async function postVerifySubjectOwnership(body: z.infer<typeof verifySubjectOwnershipBodySchema>) {
-  const result = await verifySubjectOwnership(body);
+  const result = await handleSubjectOwnershipVerification(body);
 
   if (!result.ok) {
     logger.warn("[verify.subject-ownership] verification failed", {

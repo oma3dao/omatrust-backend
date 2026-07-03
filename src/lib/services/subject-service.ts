@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import type { AccountContext } from "@/lib/services/account-service";
 import { getAuthenticatedWalletFromContext } from "@/lib/services/wallet-execution-mode";
 import {
-  verifySubjectOwnership,
+  handleSubjectOwnershipVerification,
   type SubjectOwnershipVerificationResult
 } from "@/lib/services/subject-ownership-service";
 
@@ -66,7 +66,7 @@ export async function assertSubjectOwnershipVerifiedForAccount(
     );
   }
 
-  const verifyFn = deps.verifyFn ?? verifySubjectOwnership;
+  const verifyFn = deps.verifyFn ?? handleSubjectOwnershipVerification;
   const result = await verifyFn({
     subjectDid: did,
     connectedWalletDid: authenticatedWallet.did
@@ -132,19 +132,6 @@ export async function addSubjectToAccount(accountContext: AccountContext, did: s
     throw new ApiError("Subject already exists", 409, "SUBJECT_ALREADY_EXISTS");
   }
 
-  const existingGlobal = await supabase
-    .from("subjects")
-    .select("account_id")
-    .eq("canonical_did", canonicalDid)
-    .maybeSingle();
-
-  if (existingGlobal.data && existingGlobal.data.account_id !== accountId) {
-    throw new ApiError("Subject owned by another account", 409, "SUBJECT_OWNED_BY_ANOTHER_ACCOUNT");
-  }
-
-  if (existingGlobal.error && !isNoRowsError(existingGlobal.error)) {
-    assertSupabase(existingGlobal.data, existingGlobal.error, "Failed to check subject ownership");
-  }
 
   const insert = await supabase
     .from("subjects")

@@ -110,20 +110,46 @@ export async function getAccountContextByAccountId(accountId: string, sessionId?
   };
 }
 
-export async function getOrCreateAccountForWallet(params: {
+/**
+ * Load an existing account for a wallet. Throws ACCOUNT_NOT_FOUND if the wallet
+ * has no account. Used by the sign-in (verify) endpoint.
+ */
+export async function getExistingAccountForWallet(params: {
+  walletDid: string;
+}): Promise<AccountContext> {
+  const existingWallet = await findWalletByDid(params.walletDid);
+  if (!existingWallet) {
+    throw new ApiError(
+      "No account found for this wallet. Please create an account first.",
+      404,
+      "ACCOUNT_NOT_FOUND"
+    );
+  }
+
+  return getAccountContextByAccountId(existingWallet.account_id);
+}
+
+/**
+ * Create a new account for a wallet. Throws ACCOUNT_ALREADY_EXISTS if the wallet
+ * already has an account. Used by the register endpoint.
+ */
+export async function createAccountForNewWallet(params: {
   walletDid: string;
   walletAddress: string;
   walletProviderId?: string | null;
   executionMode?: WalletExecutionMode | null;
 }): Promise<AccountContext> {
-  const supabase = getSupabaseAdmin();
-  const freeLimits = getPlanLimits("free");
-
   const existingWallet = await findWalletByDid(params.walletDid);
   if (existingWallet) {
-    assertRequestedExecutionModeMatchesWallet(existingWallet, params.executionMode);
-    return getAccountContextByAccountId(existingWallet.account_id);
+    throw new ApiError(
+      "This wallet already has an account. Please sign in instead.",
+      409,
+      "ACCOUNT_ALREADY_EXISTS"
+    );
   }
+
+  const supabase = getSupabaseAdmin();
+  const freeLimits = getPlanLimits("free");
 
   const executionMode = resolveInitialWalletExecutionMode({
     walletProviderId: params.walletProviderId ?? null,
