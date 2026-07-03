@@ -10,7 +10,7 @@ const envSchema = z.object({
   OMATRUST_ALLOWED_CORS_ORIGINS: z.string().default(""),
   OMATRUST_BROWSER_CLIENT_ID: z.string().min(1),
   OMATRUST_ACTIVE_CHAIN: z.enum(CHAIN_PRESET_KEYS as [ChainPreset, ...ChainPreset[]]),
-  SUPABASE_URL: z.string().url(),
+  SUPABASE_URL: z.string().url().transform((val) => new URL(val).origin),
   SUPABASE_SECRET_KEY: z.string().min(1),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
@@ -36,7 +36,20 @@ export function getEnv(): Env {
     return cachedEnv;
   }
 
-  cachedEnv = envSchema.parse(process.env);
+  const result = envSchema.safeParse(process.env);
+
+  if (!result.success) {
+    const summary = result.error.issues
+      .map((issue) => {
+        const path = issue.path.join(".");
+        return `${path}: ${issue.message}`;
+      })
+      .join("; ");
+
+    throw new Error(`Environment configuration is invalid — ${summary}`);
+  }
+
+  cachedEnv = result.data;
   return cachedEnv;
 }
 
