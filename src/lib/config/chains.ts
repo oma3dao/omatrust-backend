@@ -26,8 +26,8 @@ export const omachainMainnet = {
 
 export const omachainDevnet = {
   key: "omachain-devnet",
-  id: 66239,
-  chainId: 66239,
+  id: 66233,
+  chainId: 66233,
   rpc: "https://rpc.devnet.chain.oma3.org/",
   name: "OMAchain DevNet",
   testnet: true,
