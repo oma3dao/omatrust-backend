@@ -19,6 +19,11 @@ function shouldUseSecureCookies() {
   return !origin.includes("localhost") && !origin.includes("127.0.0.1");
 }
 
+function getCookieSameSite(): "lax" | "none" {
+  const origins = process.env.OMATRUST_ALLOWED_CORS_ORIGINS ?? "";
+  return origins.includes("localhost") ? "none" : "lax";
+}
+
 export async function createSiweChallenge(input: {
   walletDid: string;
   chainId: number;
@@ -278,7 +283,7 @@ export function setSessionCookie(response: NextResponse, token: string, expiresA
     value: token,
     httpOnly: true,
     secure: shouldUseSecureCookies(),
-    sameSite: "lax",
+    sameSite: getCookieSameSite(),
     path: "/",
     expires: new Date(expiresAt)
   });
@@ -290,7 +295,7 @@ export function clearSessionCookie(response: NextResponse) {
     value: "",
     httpOnly: true,
     secure: shouldUseSecureCookies(),
-    sameSite: "lax",
+    sameSite: getCookieSameSite(),
     path: "/",
     maxAge: 0
   });
