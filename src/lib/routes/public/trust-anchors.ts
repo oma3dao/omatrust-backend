@@ -1,5 +1,6 @@
 import { getEnv } from "@/lib/config/env";
 
+const OMACHAIN_MAINNET_CHAIN_ID = "eip155:6623";
 const OMACHAIN_TESTNET_CHAIN_ID = "eip155:66238";
 
 export const TRUST_ANCHORS_VERSION = 1;
@@ -48,7 +49,7 @@ const CHAIN_TRUST_ANCHORS: Record<string, ChainTrustAnchors> = {
       "user-review-response": "0x53498ae8ae4928a8789e09663f44d6e3c77daeb703c3765aa184b958c3ca41be",
     },
   },
-  "eip155:6623": {
+  [OMACHAIN_MAINNET_CHAIN_ID]: {
     name: "OMAChain Mainnet",
     easContract: "0x00Bd6f0Ee99bD76273B57e6dDEc5B00850c6b76C",
     schemas: {
