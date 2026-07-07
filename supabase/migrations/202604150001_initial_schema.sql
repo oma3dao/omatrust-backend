@@ -136,3 +136,10 @@ alter table public.clients enable row level security;
 alter table public.credentials enable row level security;
 alter table public.sessions enable row level security;
 alter table public.siwe_challenges enable row level security;
+
+-- Grant service_role full access to all tables.
+-- The backend uses the Supabase service_role key which bypasses RLS,
+-- but the underlying Postgres role still needs table-level privileges.
+grant usage on schema public to service_role;
+grant all privileges on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to service_role;
