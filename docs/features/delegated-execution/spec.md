@@ -373,7 +373,7 @@ Cookie guidance:
 
 - use `httpOnly`
 - use `secure`
-- use `sameSite=lax` or stricter as deployment permits
+- use `sameSite=none` when localhost is in allowed CORS origins (cross-site dev); otherwise `sameSite=lax`
 - cookie is the default browser transport in V1
 
 #### `POST https://backend.omatrust.org/api/private/session/logout`

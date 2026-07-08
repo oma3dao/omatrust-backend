@@ -4,7 +4,7 @@ import type { SessionRow, SiweChallengeRow } from "@/lib/db/types";
 import { assertSupabase, isNoRowsError } from "@/lib/db/utils";
 import { ApiError } from "@/lib/errors";
 import { createNonce, buildSiweChallengeMessage, normalizeWalletDid, verifySiweMessage } from "@/lib/auth/siwe";
-import { getEnv } from "@/lib/config/env";
+import { getEnv, parseCsv } from "@/lib/config/env";
 import { ensureBrowserClient } from "@/lib/services/client-service";
 import { getExistingAccountForWallet, createAccountForNewWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
 import { getOrCreateWalletCredential } from "@/lib/services/credential-service";
@@ -20,8 +20,8 @@ function shouldUseSecureCookies() {
 }
 
 function getCookieSameSite(): "lax" | "none" {
-  const origins = process.env.OMATRUST_ALLOWED_CORS_ORIGINS ?? "";
-  return origins.includes("localhost") ? "none" : "lax";
+  const origins = parseCsv(getEnv().OMATRUST_ALLOWED_CORS_ORIGINS);
+  return origins.some((o) => new URL(o).hostname === "localhost") ? "none" : "lax";
 }
 
 export async function createSiweChallenge(input: {
