@@ -16,11 +16,17 @@ export function created<T>(body: T, init?: ResponseInit) {
 export function errorResponse(error: unknown) {
   const apiError = toApiError(error);
 
+  const isServerError = apiError.statusCode >= 500;
+
   return json(
     {
-      error: apiError.message,
+      error: isServerError
+        ? "Something went wrong on our end. Please report this issue using the link at the top of the page."
+        : apiError.message,
       code: apiError.code,
-      details: apiError.details
+      details: isServerError
+        ? apiError.message
+        : apiError.details
     },
     {
       status: apiError.statusCode
