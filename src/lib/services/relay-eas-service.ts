@@ -77,10 +77,6 @@ function getProvider() {
   return getPremiumRpcProvider();
 }
 
-function isMainnet() {
-  return getActiveChain().key === "omachain-mainnet";
-}
-
 export async function getRelayNonce(accountContext: AccountContext, attester: string) {
   const chain = getActiveChain();
 
@@ -270,10 +266,6 @@ export async function submitDelegatedAttestation(params: {
     throw new ApiError("Duplicate submission", 409, "DUPLICATE");
   }
   processedSignatures.set(signatureHash, Date.now());
-
-  if (isMainnet()) {
-    throw new ApiError("Mainnet delegated attestations not yet available", 501, "MAINNET_NOT_SUPPORTED");
-  }
 
   const { v, r, s } = splitSignature(params.signature);
   const builtMessage = typedData.message as DelegatedTypedDataMessage;

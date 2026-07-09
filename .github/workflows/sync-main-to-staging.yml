@@ -1,0 +1,33 @@
+name: Sync main → staging
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge main into staging
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout staging
+          git merge origin/main --no-edit || {
+            git merge --abort
+            gh issue create \
+              --title "⚠️ Auto-sync failed: main → staging has conflicts" \
+              --body "The automatic merge of main into staging failed due to conflicts. Please resolve manually:\n\n\`\`\`bash\ngit fetch origin\ngit checkout staging\ngit merge origin/main\n# resolve conflicts\ngit push origin staging\n\`\`\`" \
+              --label "bug"
+            exit 1
+          }
+          git push origin staging
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -4,7 +4,7 @@ import type { SessionRow, SiweChallengeRow } from "@/lib/db/types";
 import { assertSupabase, isNoRowsError } from "@/lib/db/utils";
 import { ApiError } from "@/lib/errors";
 import { createNonce, buildSiweChallengeMessage, normalizeWalletDid, verifySiweMessage } from "@/lib/auth/siwe";
-import { getEnv } from "@/lib/config/env";
+import { getEnv, parseCsv } from "@/lib/config/env";
 import { ensureBrowserClient } from "@/lib/services/client-service";
 import { getExistingAccountForWallet, createAccountForNewWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
 import { getOrCreateWalletCredential } from "@/lib/services/credential-service";
@@ -17,6 +17,11 @@ import type { WalletExecutionMode } from "@/lib/db/types";
 function shouldUseSecureCookies() {
   const origin = getEnv().OMATRUST_BACKEND_URL;
   return !origin.includes("localhost") && !origin.includes("127.0.0.1");
+}
+
+function getCookieSameSite(): "lax" | "none" {
+  const origins = parseCsv(getEnv().OMATRUST_ALLOWED_CORS_ORIGINS);
+  return origins.some((o) => new URL(o).hostname === "localhost") ? "none" : "lax";
 }
 
 export async function createSiweChallenge(input: {
@@ -278,7 +283,7 @@ export function setSessionCookie(response: NextResponse, token: string, expiresA
     value: token,
     httpOnly: true,
     secure: shouldUseSecureCookies(),
-    sameSite: "lax",
+    sameSite: getCookieSameSite(),
     path: "/",
     expires: new Date(expiresAt)
   });
@@ -290,7 +295,7 @@ export function clearSessionCookie(response: NextResponse) {
     value: "",
     httpOnly: true,
     secure: shouldUseSecureCookies(),
-    sameSite: "lax",
+    sameSite: getCookieSameSite(),
     path: "/",
     maxAge: 0
   });
