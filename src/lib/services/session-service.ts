@@ -4,7 +4,7 @@ import type { SessionRow, SiweChallengeRow } from "@/lib/db/types";
 import { assertSupabase, isNoRowsError } from "@/lib/db/utils";
 import { ApiError } from "@/lib/errors";
 import { createNonce, buildSiweChallengeMessage, normalizeWalletDid, verifySiweMessage } from "@/lib/auth/siwe";
-import { getEnv, parseCsv } from "@/lib/config/env";
+import { getEnv } from "@/lib/config/env";
 import { ensureBrowserClient } from "@/lib/services/client-service";
 import { getExistingAccountForWallet, createAccountForNewWallet, getAccountContextByAccountId, type AccountContext } from "@/lib/services/account-service";
 import { getOrCreateWalletCredential } from "@/lib/services/credential-service";
@@ -20,8 +20,25 @@ function shouldUseSecureCookies() {
 }
 
 function getCookieSameSite(): "lax" | "none" {
-  const origins = parseCsv(getEnv().OMATRUST_ALLOWED_CORS_ORIGINS);
-  return origins.some((o) => new URL(o).hostname === "localhost") ? "none" : "lax";
+  // "lax" is correct for all current environments:
+  //   - Production/staging: frontend and backend share the same registrable
+  //     domain (omatrust.org), so they are same-site and Lax cookies flow fine.
+  //   - Local dev (localhost:3000 → localhost:3001): same-site (ports don't
+  //     affect the site boundary), so Lax works here too.
+  //
+  // If in the future we need localhost frontend → deployed staging backend
+  // (cross-site: localhost vs omatrust.org), this must return "none" for that
+  // scenario. SameSite=None requires Secure=true, which is already set when
+  // the backend is on HTTPS (shouldUseSecureCookies() returns true).
+  //
+  // Two approaches to enable cross-site support:
+  //   1. Environment variable override: add OMATRUST_COOKIE_SAME_SITE=none
+  //      to the staging env vars, and check it here first.
+  //   2. Auto-detect: return "none" when shouldUseSecureCookies() is true AND
+  //      OMATRUST_ALLOWED_CORS_ORIGINS contains a localhost entry.
+  //      (Do NOT return "none" when shouldUseSecureCookies() is false — browsers
+  //      reject SameSite=None without the Secure flag.)
+  return "lax";
 }
 
 export async function createSiweChallenge(input: {
