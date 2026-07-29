@@ -132,6 +132,10 @@ curl -i https://<domain>/api/health
 # Trust anchors — expect 200 with chain and issuer data
 curl https://<domain>/api/public/trust-anchors
 
+# Verified artifact evidence — expect 200 with complete evidence groups
+curl --get https://<domain>/api/public/artifact-trust \
+  --data-urlencode 'artifactDid=did:artifact:bafk...'
+
 # SIWE challenge — expect 200 with nonce and message
 curl -X POST https://<domain>/api/private/session/wallet/challenge \
   -H "Content-Type: application/json" \
@@ -139,6 +143,48 @@ curl -X POST https://<domain>/api/private/session/wallet/challenge \
 ```
 
 The remaining endpoints (verify, session, relay, rpc-premium) require an authenticated session and are best tested through the frontend.
+
+### Public Artifact Trust Lookup
+
+`GET /api/public/artifact-trust?artifactDid=<did:artifact>` returns the
+verified OMATrust evidence associated with one artifact. The endpoint requires
+no session and uses the public RPC endpoint for the chain selected by
+`OMATRUST_ACTIVE_CHAIN`.
+
+Successful responses contain `responsibilityClaims`, `securityAssessments`,
+`certifications`, and `otherAttestations`. Every returned item has
+`verification.valid: true`. Responsibility claims have a dedicated group so
+consumers can prominently identify who accepts responsibility for the
+artifact. The artifact DID is the claim subject and does not authorize the
+attester; the separate `responsibleParty` DID identifies the accountable
+entity whose controller relationship is verified. `securityAssessments`
+contains cybersecurity assessments from approved issuers.
+`otherAttestations` is the extensible group for recognized evidence such as
+linked identifiers; consumers display and interpret those identifiers rather
+than assuming they establish trust in a particular target. User reviews are
+not returned because their schema cannot prove a `did:artifact` binding.
+Controller witnesses may support verification of another claim but are not
+returned as artifact evidence.
+
+A complete lookup with no qualifying evidence returns `200`, empty evidence
+arrays, and:
+
+```json
+{
+  "summary": {
+    "totalQueried": 0,
+    "totalVerified": 0,
+    "totalExcluded": 0,
+    "complete": true
+  }
+}
+```
+
+RPC or EAS failures return an error rather than a partial or misleadingly empty
+success response.
+
+Operators can independently inspect the same artifact at
+https://app.omatrust.org/verify using the response `artifactDid`.
 
 ## Architecture
 
