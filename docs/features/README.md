@@ -1,5 +1,13 @@
 # Feature Index
 
+## artifact-api
+
+- Status: Implemented
+- Released in: Unreleased
+- Files:
+  - [plan.md](./artifact-api/plan.md)
+  - [spec.md](./artifact-api/spec.md)
+
 ## delegated-execution
 
 - Status: Draft
