@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ApiError } from "../errors.ts";
+import { ApiError } from "@/lib/errors";
 import {
   assertRequestedExecutionModeMatchesWallet,
   getAuthenticatedWalletFromContext,
   resolveInitialWalletExecutionMode
-} from "./wallet-execution-mode.ts";
-import { buildSessionMeResponse } from "./session-view.ts";
+} from "@/lib/services/wallet-execution-mode";
+import { buildSessionMeResponse } from "@/lib/services/session-view";
 
 test("inApp wallets are forced to subscription execution", () => {
   assert.equal(
