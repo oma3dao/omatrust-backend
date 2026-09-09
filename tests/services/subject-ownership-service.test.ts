@@ -178,6 +178,32 @@ test("verifySubjectOwnership rejects did:pkh subjects on a non-active chain", as
   );
 });
 
+/**
+ * The public route serializes this object straight into its 403 body, so the
+ * fields asserted here are the contract a caller sees when a proof fails. The
+ * route cannot be driven through this path in a test because it builds its own
+ * JsonRpcProvider for did:pkh subjects.
+ */
+test("a failed did:pkh proof produces the body the public route returns as 403", async () => {
+  const result = await handleSubjectOwnershipVerification(
+    {
+      subjectDid: OTHER_WALLET_DID,
+      connectedWalletDid: WALLET_DID
+    },
+    {
+      provider: createProvider({ getCode: async () => "0x" })
+    }
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "failed");
+  assert.equal(result.subjectDid, OTHER_WALLET_DID);
+  assert.equal(result.connectedWalletDid, WALLET_DID);
+  assert.equal(typeof result.error, "string");
+  assert.ok((result.error ?? "").length > 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)).ok, false);
+});
+
 test("verifySubjectOwnership never reports a controlling wallet on failure", async () => {
   const result = await handleSubjectOwnershipVerification(
     {

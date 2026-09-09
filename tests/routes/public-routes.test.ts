@@ -189,20 +189,24 @@ test("controller endpoint confirm route ignores a wallet the caller tries to smu
   assert.deepEqual(body.controllerKeys, []);
 });
 
-test("subject ownership route answers 403 with a structured failure, not a 500", async () => {
+/**
+ * The 403 failure branch is asserted in tests/services/subject-ownership-service.test.ts
+ * instead of here. A did:pkh subject on the active chain makes the service build a real
+ * JsonRpcProvider, and the route takes no dependency override, so exercising that branch
+ * through the route would require a live node.
+ */
+test("subject ownership route refuses a DID method it cannot verify", async () => {
   const response = await verifySubjectOwnership(
     post("https://backend.example/api/verify/subject-ownership", {
-      subjectDid: SUBJECT_DID,
+      subjectDid: "did:key:z6MkfakeSubjectKey",
       connectedWalletDid: OTHER_WALLET_DID
     }),
     ROUTE_CONTEXT
   );
-  const body = (await response.json()) as { ok: boolean; status: string; error?: string };
+  const body = (await response.json()) as { code: string };
 
-  assert.equal(response.status, 403);
-  assert.equal(body.ok, false);
-  assert.equal(body.status, "failed");
-  assert.ok(body.error);
+  assert.equal(response.status, 400);
+  assert.equal(body.code, "INVALID_DID");
 });
 
 test("subject ownership route rejects a subject on a chain the backend does not serve", async () => {
