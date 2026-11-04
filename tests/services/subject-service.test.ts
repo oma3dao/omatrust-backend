@@ -4,7 +4,7 @@ import type { AccountContext } from "@/lib/services/account-service";
 import {
   assertSubjectOwnershipVerifiedForAccount,
   shouldReplaceBootstrapWalletSubject
-} from "./subject-service.ts";
+} from "@/lib/services/subject-service";
 
 function createAccountContext(): AccountContext {
   return {
@@ -150,6 +150,145 @@ test("shouldReplaceBootstrapWalletSubject returns false for wallet DID subject",
       accountContext,
       canonicalDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111",
       authenticatedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
+    }),
+    false
+  );
+});
+
+test("assertSubjectOwnershipVerifiedForAccount falls back to the primary wallet without a credential", async () => {
+  const accountContext = createAccountContext();
+  accountContext.credential = null;
+  accountContext.wallets.unshift({
+    id: "wallet-2",
+    account_id: "account-1",
+    did: "did:pkh:eip155:66238:0x2222222222222222222222222222222222222222",
+    wallet_address: "0x2222222222222222222222222222222222222222",
+    wallet_provider_id: "inApp",
+    execution_mode: "subscription",
+    is_primary: false,
+    created_at: new Date().toISOString()
+  });
+
+  const result = await assertSubjectOwnershipVerifiedForAccount(
+    accountContext,
+    "did:web:example.com",
+    {
+      verifyFn: async (params) => ({
+        ok: true,
+        status: "verified",
+        subjectDid: params.subjectDid,
+        connectedWalletDid: params.connectedWalletDid,
+        method: "dns"
+      })
+    }
+  );
+
+  assert.equal(
+    result.authenticatedWalletDid,
+    "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
+  );
+});
+
+test("assertSubjectOwnershipVerifiedForAccount refuses when the credential wallet is unknown", async () => {
+  const accountContext = createAccountContext();
+  accountContext.wallets = [];
+
+  await assert.rejects(
+    () =>
+      assertSubjectOwnershipVerifiedForAccount(accountContext, "did:web:example.com", {
+        verifyFn: async () => {
+          throw new Error("verification must not be attempted");
+        }
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      (error as { code?: string }).code === "WALLET_AUTH_REQUIRED"
+  );
+});
+
+test("assertSubjectOwnershipVerifiedForAccount still explains a bare verification failure", async () => {
+  const accountContext = createAccountContext();
+
+  await assert.rejects(
+    () =>
+      assertSubjectOwnershipVerifiedForAccount(accountContext, "did:web:example.com", {
+        verifyFn: async (params) => ({
+          ok: false,
+          status: "failed",
+          subjectDid: params.subjectDid,
+          connectedWalletDid: params.connectedWalletDid
+        })
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "Subject ownership verification failed" &&
+      "details" in error &&
+      typeof (error as { details?: string }).details === "string" &&
+      (error as { details: string }).details.length > 0
+  );
+});
+
+test("assertSubjectOwnershipVerifiedForAccount reports the wallet that satisfied the check", async () => {
+  const accountContext = createAccountContext();
+
+  const result = await assertSubjectOwnershipVerifiedForAccount(
+    accountContext,
+    "did:web:example.com",
+    {
+      verifyFn: async (params) => ({
+        ok: true,
+        status: "verified",
+        subjectDid: params.subjectDid,
+        connectedWalletDid: params.connectedWalletDid,
+        method: "dns"
+      })
+    }
+  );
+
+  assert.equal(
+    result.authenticatedWalletDid,
+    "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
+  );
+  assert.equal(result.verification.ok, true);
+});
+
+test("shouldReplaceBootstrapWalletSubject keeps a sole subject that is not the bootstrap default", () => {
+  const accountContext = createAccountContext();
+  accountContext.subjects[0].is_default = false;
+
+  assert.equal(
+    shouldReplaceBootstrapWalletSubject({
+      accountContext,
+      canonicalDid: "did:web:example.com",
+      authenticatedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
+    }),
+    false
+  );
+});
+
+test("shouldReplaceBootstrapWalletSubject keeps a sole subject that is not the wallet subject", () => {
+  const accountContext = createAccountContext();
+  accountContext.subjects[0].canonical_did = "did:web:already-owned.example.com";
+
+  assert.equal(
+    shouldReplaceBootstrapWalletSubject({
+      accountContext,
+      canonicalDid: "did:web:example.com",
+      authenticatedWalletDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111"
+    }),
+    false
+  );
+});
+
+test("shouldReplaceBootstrapWalletSubject compares wallet DIDs in normalized form", () => {
+  const accountContext = createAccountContext();
+
+  assert.equal(
+    shouldReplaceBootstrapWalletSubject({
+      accountContext,
+      canonicalDid: "did:pkh:eip155:66238:0x1111111111111111111111111111111111111111",
+      authenticatedWalletDid: "DID:PKH:eip155:66238:0x1111111111111111111111111111111111111111"
     }),
     false
   );
